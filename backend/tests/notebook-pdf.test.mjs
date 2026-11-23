@@ -1,0 +1,13 @@
+import assert from "node:assert/strict";
+import { it } from "node:test";
+import { sanitizeNotebookHtml } from "../dist/services/notebook-pdf.service.js";
+it("PDF rendering strips executable markup, remote resources and user styles while preserving notebook diagrams", () => {
+  const clean = sanitizeNotebookHtml(
+    '<section class="material-section"><h1>Notebook</h1><script>fetch("https://attacker.test")</script><img src="http://127.0.0.1:4000"><iframe src="file:///etc/passwd"></iframe><style>body{display:none}</style><p onclick="alert(1)" style="background:url(https://attacker.test)">Atomicity</p><svg viewBox="0 0 400 200" onload="alert(1)"><line x1="1" y1="2" x2="3" y2="4" marker-end="url(#arrow)"/><text x="10" y="20">Commit</text><foreignObject><iframe src="https://attacker.test"></iframe></foreignObject></svg><details><summary>Question</summary><p>Answer</p></details></section>',
+  );
+  assert.match(clean, /Atomicity/);
+  assert.match(clean, /viewBox="0 0 400 200"/);
+  assert.match(clean, /marker-end="url\(#arrow\)"/);
+  assert.match(clean, /Answer/);
+  assert.doesNotMatch(clean, /script|iframe|foreignObject|attacker|src=|onload|onclick|style=/);
+});

@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": ".cache/workspace-tests",
+    "types": ["node"]
+  },
+  "include": [
+    "src/features/workspace/workspace-model.ts",
+    "src/lib/supabase-env.ts",
+    "src/features/workspace/notes-api.ts",
+    "src/features/workspace/workspace-api.ts"
+  ]
+}
