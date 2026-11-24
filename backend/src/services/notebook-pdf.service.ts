@@ -9,7 +9,7 @@ import { logger } from "../lib/logger.js";
 import { pdfBrowserOptions } from "./pdf-browser.js";
 const require = createRequire(import.meta.url);
 let css: Promise<string> | undefined;
-async function notebookCss() {
+export async function notebookCss() {
   let value = (
     await readFile(
       resolve(
@@ -33,21 +33,24 @@ async function notebookCss() {
     /url\(["']?\.\/fonts\/STIXTwoMath-Regular\.woff2["']?\)/g,
     `url(data:font/woff2;base64,${mathFont.toString("base64")})`,
   );
-  for (const family of ["kalam", "caveat"])
-    for (const weight of [400, 700]) {
-      const path = require.resolve(`@fontsource/${family}/${weight}.css`);
-      let font = await readFile(path, "utf8");
-      const urls = [...font.matchAll(/url\(([^)]+)\)/g)];
-      for (const match of urls) {
-        const file = match[1]!.replace(/["']/g, "");
-        const bytes = await readFile(resolve(dirname(path), file));
-        font = font.replace(
-          match[0],
-          `url(data:font/${file.endsWith("woff2") ? "woff2" : "woff"};base64,${bytes.toString("base64")})`,
-        );
-      }
-      value = font + "\n" + value;
+  const fontSheets = [
+    "@fontsource-variable/inter/index.css",
+    "@fontsource-variable/fraunces/index.css",
+  ];
+  for (const sheet of fontSheets) {
+    const path = require.resolve(sheet);
+    let font = await readFile(path, "utf8");
+    const urls = [...font.matchAll(/url\(([^)]+)\)/g)];
+    for (const match of urls) {
+      const file = match[1]!.replace(/["']/g, "");
+      const bytes = await readFile(resolve(dirname(path), file));
+      font = font.replace(
+        match[0],
+        `url(data:font/${file.endsWith("woff2") ? "woff2" : "woff"};base64,${bytes.toString("base64")})`,
+      );
     }
+    value = font + "\n" + value;
+  }
   return value;
 }
 export function sanitizeNotebookHtml(html: string) {
@@ -196,7 +199,7 @@ export async function generateNotebookPdf(html: string) {
     page.setDefaultTimeout(30000);
     await page.emulateMedia({ media: "print" });
     await page.setContent(
-      `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:"><style>body{--font-sans:Arial,sans-serif}*{box-sizing:border-box}${styles}</style></head><body><div id="notebook-print-root">${sanitizeNotebookHtml(html)}</div></body></html>`,
+      `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:"><style>*{box-sizing:border-box}#notebook-print-root :where(h1,h2,h3,p,figure,ul,ol){margin:0}${styles}</style></head><body><div id="notebook-print-root">${sanitizeNotebookHtml(html)}</div></body></html>`,
       { waitUntil: "load", timeout: 30000 },
     );
     await page.evaluate("document.fonts.ready");

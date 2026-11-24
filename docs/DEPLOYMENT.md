@@ -23,6 +23,8 @@ Supply gallery/provider credentials through the dashboard. Set `FRONTEND_ORIGIN`
 
 Vercel uses `vercel.json` and only `VITE_API_BASE_URL=https://YOUR-API/api/v1`. SPA routes include `/admin`, `/gallery`, `/assistant` and `/ask`. No browser Supabase key is required.
 
+If `/workspace/export` still responds with “Install the local Chromium browser with npx playwright install chromium”, Render is serving the older backend. Deploy the latest backend commit on Render (and check its build/start commands above); a Vercel-only deployment cannot update that endpoint. The updated exporter embeds the same Inter/Fraunces/STIX math fonts used by the website, and browser printing shares those typefaces instead of switching to handwriting fonts.
+
 For unrelated Vercel/Render domains, use production HTTPS with `SESSION_SAME_SITE=none` for the **admin** cookie. Some browsers still block third-party cookies; use frontend/API subdomains under one site or a reviewed same-site proxy if admin login fails. Public gallery/study/Ask require no cookie and are unaffected by that restriction.
 
 FreeGG remains the study/PDF and Detailed Ask provider; Gemini handles Quick Ask independently. Auto selects Quick unless the prompt asks for detail. External outages, unavailable captions, missing keys, size limits and overload can still reject a request. Errors/retries are shown honestly. Quick Ask retries one explicit HTTP 503 rejection without Retry-After, not unknown timeouts/network outcomes. With no durable request records, timeouts/restarts cannot recover results or prevent duplicate provider charges. Do not enable automatic blind paid-call replay. Basic rate/concurrency limits remain to protect availability.

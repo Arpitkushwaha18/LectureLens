@@ -1,8 +1,19 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { sanitizeNotebookHtml } from "../dist/services/notebook-pdf.service.js";
+import { sanitizeNotebookHtml, notebookCss } from "../dist/services/notebook-pdf.service.js";
 import { readFile } from "node:fs/promises";
 import { pdfBrowserOptions } from "../dist/services/pdf-browser.js";
+
+it("downloaded PDFs embed the same Inter/Fraunces fonts as the generated screen notes", async () => {
+  const css = await notebookCss();
+  assert.match(css, /Inter Variable/);
+  assert.match(css, /Fraunces Variable/);
+  assert.match(css, /STIX Two Math/);
+  assert.doesNotMatch(css, /@import|@media screen/);
+  const urls = [...css.matchAll(/url\(([^)]+)\)/g)];
+  assert.ok(urls.length > 2);
+  for (const [, url] of urls) assert.ok(url.startsWith("data:font/"));
+});
 
 it("PDF builds carry notebook CSS and a local math font without needing frontend at runtime", async () => {
   const css = await readFile(new URL("../dist/assets/notebook.css", import.meta.url), "utf8");

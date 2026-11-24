@@ -163,9 +163,30 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await page.setViewportSize({ width: 1280, height: 900 });
+  const screenFonts = await paper.evaluate((node) => ({
+    body: getComputedStyle(node).fontFamily,
+    heading: getComputedStyle(node.querySelector("h1")).fontFamily,
+    formula: getComputedStyle(node.querySelector("math")).fontFamily,
+  }));
+  await page.emulateMedia({ media: "print" });
+  const printFonts = await page
+    .locator("#notebook-print-root .study-notebook")
+    .evaluate((node) => ({
+      body: getComputedStyle(node).fontFamily,
+      heading: getComputedStyle(node.querySelector("h1")).fontFamily,
+      formula: getComputedStyle(node.querySelector("math")).fontFamily,
+    }));
+  assert.deepEqual(printFonts, screenFonts);
+  await page.pdf({ path: ".cache/e2e/browser-print.pdf", format: "A4", printBackground: true });
+  await page.emulateMedia({ media: "screen" });
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export PDF", exact: true }).click();
   await (await download).saveAs(".cache/e2e/notebook-export.pdf");
+  for (const file of [".cache/e2e/notebook-export.pdf", ".cache/e2e/browser-print.pdf"]) {
+    const bytes = await readFile(file);
+    assert.match(bytes.toString("latin1"), /Inter/);
+    assert.match(bytes.toString("latin1"), /Fraunces/);
+  }
   const exported = await extractDocument(
     await readFile(".cache/e2e/notebook-export.pdf"),
     "export.pdf",
@@ -192,6 +213,13 @@ try {
   await page.getByRole("button", { name: "Print / Save as PDF", exact: true }).waitFor();
   assert.match(await page.getByRole("alert").textContent(), /server could not prepare/);
   assert.doesNotMatch(await page.getByRole("alert").textContent(), /private server path/);
+  await page.evaluate(() => {
+    window.print = () => {
+      window.__printInvoked = true;
+    };
+  });
+  await page.getByRole("button", { name: "Print / Save as PDF", exact: true }).click();
+  await page.waitForFunction(() => window.__printInvoked === true);
   await page.unroute(exportEndpoint);
   await page.route(exportEndpoint, (route) =>
     route.fulfill({ status: 200, contentType: "application/pdf", body: "Not actually a PDF" }),

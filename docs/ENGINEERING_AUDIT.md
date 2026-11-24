@@ -1,5 +1,11 @@
 # LectureLens engineering audit
 
+## Matching screen/print/export fonts and stale hosted backend — November 24 follow-up
+
+- Rechecked the deployed Vercel-origin `/workspace/export` with a tiny synthetic document: the live Render response remains HTTP 503 and still contains the **old** “Install the local Chromium browser” error text. The current code does not emit that message, identifying a stale backend deployment; no further AI call or hosting change was made. Render must deploy the updated backend, independently of Vercel.
+- Removed the explicit screen-to-handwriting switch: shared reading styles now apply to browser print and server export. Inter body text, Fraunces headings and full STIX math fonts are consistent; print retains A4 pagination but no longer introduces ruled-paper backgrounds or changes the typefaces. The backend embeds the actual Inter/Fraunces variable font files instead of using Arial/handwriting substitutes. A small notebook-scoped reset prevents browser default margins from changing the server rendering.
+- The explicit Print / Save as PDF action waits for all three fonts to load, including faces in normally hidden print content. Browser regression compares screen/print computed font families, checks actual Inter/Fraunces font names in **both real PDF files**, and verifies the fallback action on a simulated server rejection. **314 backend tests pass**, with frontend build and the complete browser workflow passing. Evidence: `.cache/same-font-*.log`, `frontend/.cache/e2e/notebook-export.pdf`, `frontend/.cache/e2e/browser-print.pdf`. Changes are limited to notebook export/print typography, required backend font dependencies and regressions/documentation; deployment is still manual.
+
 ## Deployed PDF failure and notebook math/diagram rendering — November 24
 
 - Confirmed the Vercel assistant uses `https://lecturelens-j3wy.onrender.com/api/v1`. A tiny synthetic POST from the deployed frontend origin to `/workspace/export` returned HTTP 503 `PDF_EXPORT_FAILED`, without any AI generation. The old server error masked the underlying stage, so unavailable Chromium versus missing CSS could not be distinguished remotely.

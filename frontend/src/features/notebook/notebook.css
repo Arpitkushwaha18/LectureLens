@@ -10,6 +10,13 @@
   src: url("./fonts/STIXTwoMath-Regular.woff2") format("woff2");
 }
 
+#notebook-print-root {
+  --font-sans:
+    "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-serif: "Fraunces Variable", ui-serif, "Iowan Old Style", Georgia, serif;
+  font-family: var(--font-sans);
+}
+
 .study-notebook {
   --notebook-line: 32px;
   background-color: #fff9eb;
@@ -300,8 +307,8 @@
     padding: 12px;
   }
 }
-/* The website uses clean reading typography; retain the existing notebook PDF style. */
-@media screen {
+/* Share reading typography between the screen, downloaded PDF and browser print. */
+@media all {
   .study-notebook {
     background: #fffdf8;
     border-radius: 12px;
@@ -378,12 +385,12 @@
   @page {
     size: A4;
     margin: 14mm 12mm;
-    background: #fff9eb;
+    background: #fffdf8;
   }
   html,
   body {
     margin: 0 !important;
-    background: #fff9eb !important;
+    background: #fffdf8 !important;
   }
   body > * {
     display: none !important;
@@ -397,20 +404,12 @@
     print-color-adjust: exact !important;
   }
   .study-notebook {
-    font-size: 16px;
-    line-height: 28px;
-    padding: 24px 20px 24px 54px;
+    font-size: 15px;
+    line-height: 1.85;
+    padding: 24px 20px;
     box-shadow: none;
     border: 0;
-    background-image:
-      linear-gradient(90deg, transparent 35px, #d98781 35px, #d98781 36px, transparent 36px),
-      repeating-linear-gradient(
-        to bottom,
-        transparent 0,
-        transparent 27px,
-        #c9d7de80 27px,
-        #c9d7de80 28px
-      );
+    background-image: none;
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
   }
@@ -457,6 +456,7 @@
     table-layout: fixed;
     width: 100%;
     font-size: 13px;
+    min-width: 0;
   }
   .table-scroll {
     overflow: visible;

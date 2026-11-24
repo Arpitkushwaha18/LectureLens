@@ -19,6 +19,23 @@ export function NotebookResults({
   const [selected, setSelected] = useState(result.materials[0]!.outputType);
   const current = result.materials.find((m) => m.outputType === selected) ?? result.materials[0]!;
   const [error, setError] = useState<string | null>(null);
+  async function printPdf() {
+    setPrinting(true);
+    try {
+      // Print-only content is normally hidden, so explicitly load its exact faces.
+      await Promise.all([
+        document.fonts.load('400 15px "Inter Variable"'),
+        document.fonts.load('700 36px "Fraunces Variable"'),
+        document.fonts.load('400 18px "STIX Two Math"'),
+      ]);
+      await document.fonts.ready;
+      window.print();
+    } catch {
+      setError("Print fonts could not load. Please retry before saving your PDF.");
+    } finally {
+      setPrinting(false);
+    }
+  }
   async function exportPdf() {
     setPrinting(true);
     setError(null);
@@ -94,7 +111,7 @@ export function NotebookResults({
           <p role="alert" className="text-sm">
             {error}
           </p>
-          <Button variant="secondary" onClick={() => window.print()}>
+          <Button variant="secondary" disabled={printing} onClick={() => void printPdf()}>
             Print / Save as PDF
           </Button>
         </div>
