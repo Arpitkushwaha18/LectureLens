@@ -19,8 +19,14 @@ import { BACKEND_ROOT } from "../config/load-env.js";
 import { getSupabaseAdmin } from "../lib/supabase.js";
 import { AppError } from "../lib/errors.js";
 export const libraryMigration = "20261122000800_shared_study_library.sql";
-const localMigrations = [libraryMigration, "20261122001000_library_removal_and_related.sql"];
+const localMigrations = [
+  libraryMigration,
+  "20261122001000_library_removal_and_related.sql",
+  "20261123001500_library_integrity.sql",
+  "20261123001600_durable_private_generation.sql",
+];
 const signatures: Record<string, string[]> = {
+  study_generation: ["text", "text", "text", "uuid", "jsonb"],
   study_read: ["uuid", "uuid"],
   study_find: ["text", "uuid"],
   study_save: ["uuid", "text", "text", "jsonb", "jsonb", "jsonb"],
@@ -83,6 +89,14 @@ export class StudyLibrary {
           p_outputs: [],
         });
         if (probe.error) libraryUnavailable();
+        const generation = await getSupabaseAdmin().rpc("study_generation", {
+          p_key: "0".repeat(64),
+          p_operation: "0".repeat(64),
+          p_action: "read",
+          p_token: null,
+          p_value: {},
+        });
+        if (generation.error) libraryUnavailable();
       }
     } catch {
       libraryUnavailable();
@@ -183,7 +197,10 @@ export class StudyLibrary {
     const questions = resource.content.questions;
     if (
       answers.length !== questions.length ||
-      answers.some((a, i) => a !== null && (a < 0 || a >= questions[i]!.options.length))
+      answers.some(
+        (a, i) =>
+          a !== null && (!Number.isInteger(a) || a < 0 || a >= questions[i]!.options.length),
+      )
     )
       throw new AppError("Choose valid answers.", { code: "QUIZ_INVALID", statusCode: 400 });
     const attemptId = await this.rpc("study_submit_quiz", {
@@ -193,7 +210,9 @@ export class StudyLibrary {
       p_answers: answers,
     });
     const attempts = await this.attempts(id, ownerId);
-    return attempts.find((a) => a.id === attemptId)!;
+    const attempt = attempts.find((a) => a.id === attemptId);
+    if (!attempt) libraryUnavailable();
+    return attempt;
   }
   async attempts(id: string, ownerId: string) {
     return z
@@ -210,13 +229,8 @@ export class StudyLibrary {
         statusCode: 401,
       });
     const db = await this.db();
-    if (token && /^[A-Za-z0-9_-]{43}$/.test(token)) {
-      const result = await db.query<{ owner_id: string }>(
-        "select owner_id from ll_private.study_guest_sessions where token_hash=$1",
-        [createHash("sha256").update(token).digest("hex")],
-      );
-      if (result.rows[0]) return { ownerId: result.rows[0].owner_id, token };
-    }
+    const existing = await this.session(token);
+    if (existing) return existing;
     const fresh = randomBytes(32).toString("base64url"),
       ownerId = randomUUID();
     await db.query(
@@ -224,6 +238,16 @@ export class StudyLibrary {
       [createHash("sha256").update(fresh).digest("hex"), ownerId],
     );
     return { ownerId, token: fresh };
+  }
+  async session(token?: string) {
+    if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
+    const result = await (
+      await this.db()
+    ).query<{ owner_id: string }>(
+      "select owner_id from ll_private.study_guest_sessions where token_hash=$1 and created_at > now() - interval '60 days'",
+      [createHash("sha256").update(token).digest("hex")],
+    );
+    return result.rows[0] ? { ownerId: result.rows[0].owner_id, token } : null;
   }
 }
 let singleton: StudyLibrary | undefined;

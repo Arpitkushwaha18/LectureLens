@@ -6,16 +6,19 @@ Put your bearer key in `backend/.env`, never in frontend variables or chat:
 AI_PROVIDER=freegg
 FREEGG_API_KEY=your_api_key_here
 FREEGG_MODEL=gpt-6.1-sol
+GEMINI_API_KEY=your_gemini_key_here
+GEMINI_TUTOR_MODEL=gemini-3.5-flash-lite
 ```
 
 Restart the backend with `npm run dev` from `backend/` after saving the file.
 Do not include `Bearer ` in the key value; the backend adds that header itself.
 Keep `TRANSCRIPTFETCH_API_KEY` unchanged: it still supplies YouTube captions.
 
-The study-set outputs, standalone detailed-notes route and doubt answers use
+The study-set outputs and standalone detailed-notes route use
 `https://freegg.app/v1/responses`. FreeGG retired Chat Completions on 23 November 2026.
 Gemini startup/model requests are skipped
-when FreeGG is selected; there is no automatic provider fallback. Existing Gemini
+when FreeGG is selected for study generation. Ask doubts uses the separate Gemini
+Flash-Lite configuration above; there is no automatic provider fallback. Existing Gemini
 settings and stored results are retained, not deleted. Provider-qualified cache
 identities separate new results, while old uncertain requests remain fenced.
 
@@ -44,4 +47,6 @@ and the recorded HTTP 410 rejection were resolved through audited recovery,
 not deletion or bulk fence resets. The separate browser session unexpectedly
 caused one additional request, which was disclosed; no further generation was
 submitted. Captions and all attempt evidence remain private and preserved. Lectures
-and questions are sent to FreeGG for processing when you submit them.
+and PDFs are sent to FreeGG; doubt questions are sent to Gemini when submitted.
+PDFs use standard Responses `input_file` parts, without local OCR. FreeGG file-input
+support remains unverified live; see [the current routing guide](AI_PROVIDER_ROUTING.md).

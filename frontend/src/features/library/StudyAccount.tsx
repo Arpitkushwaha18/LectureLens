@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { libraryRequest, openStudySession } from "./library-api";
+import { useQueryClient } from "@tanstack/react-query";
 export function StudyAccount() {
+  const queryClient = useQueryClient();
   const [session, setSession] = useState<Awaited<ReturnType<typeof openStudySession>> | null>(null),
     [open, setOpen] = useState(false),
     [email, setEmail] = useState(""),
@@ -23,6 +25,7 @@ export function StudyAccount() {
       setPassword("");
       setMessage(result.data.message ?? "Signed out.");
       setSession(await openStudySession(true));
+      queryClient.clear();
     } catch (error) {
       setMessage((error as Error).message);
     } finally {

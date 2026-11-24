@@ -1,17 +1,14 @@
-import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
+import { createCanvas } from "@napi-rs/canvas";
 import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
 import JSZip from "jszip";
 import { workbook } from "./documents.mjs";
-// macOS Devanagari font; CI may set OCR_TEST_HINDI_FONT to a local Noto Sans Devanagari TTF.
-if (process.env.OCR_TEST_HINDI_FONT)
-  GlobalFonts.registerFromPath(process.env.OCR_TEST_HINDI_FONT, "OCR Hindi");
 export function textImage(hindi = false) {
   const canvas = createCanvas(1600, 380),
     context = canvas.getContext("2d");
   context.fillStyle = "white";
   context.fillRect(0, 0, 1600, 380);
   context.fillStyle = "black";
-  context.font = hindi ? '48px "OCR Hindi", "Devanagari Sangam MN", sans-serif' : "48px Arial";
+  context.font = hindi ? '48px "Devanagari Sangam MN", sans-serif' : "48px Arial";
   const lines = hindi
     ? ["भारत में शिक्षा और विज्ञान महत्वपूर्ण हैं।", "विद्यार्थी ध्यान से पढ़ते हैं और ज्ञान सीखते हैं।"]
     : [

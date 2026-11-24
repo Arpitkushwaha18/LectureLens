@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
 import { createCanvas } from "@napi-rs/canvas";
-import { textImage, imageWorkbook } from "../tests/helpers/ocr-fixtures.mjs";
+import { textImage, imageWorkbook } from "../tests/helpers/document-visual-fixtures.mjs";
 import { extractDocument } from "../dist/modules/extraction/documents.js";
 import { writeFile } from "node:fs/promises";
 const results = [];

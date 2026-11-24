@@ -2,7 +2,6 @@ import { Menu } from "lucide-react";
 import { useLocation } from "react-router-dom";
 
 import { HealthStatus } from "@/components/HealthStatus";
-import { StudyAccount } from "@/features/library/StudyAccount";
 import { findNavItem, navGroups } from "@/lib/navigation";
 
 type TopbarProps = {
@@ -43,7 +42,6 @@ export function Topbar({ navOpen, onOpenNav }: TopbarProps) {
         </div>
 
         <HealthStatus />
-        <StudyAccount />
       </div>
     </header>
   );

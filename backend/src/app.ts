@@ -1,6 +1,6 @@
 import cors, { type CorsOptions } from "cors";
 import express, { type Express } from "express";
-import { rateLimit } from "express-rate-limit";
+import { apiRateLimit } from "./middleware/rate-limit.js";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
 
@@ -38,6 +38,7 @@ export function createApp(router: express.Router = apiRouter): Express {
   const app = express();
 
   app.disable("x-powered-by");
+  app.set("trust proxy", env.TRUST_PROXY_HOPS);
   app.use(helmet());
   app.use(cors(corsOptions));
   app.use(express.json({ limit: "2mb" }));
@@ -53,16 +54,7 @@ export function createApp(router: express.Router = apiRouter): Express {
     }),
   );
 
-  app.use(
-    "/api/v1",
-    rateLimit({
-      windowMs: 60_000,
-      limit: 120,
-      standardHeaders: "draft-8",
-      legacyHeaders: false,
-    }),
-    router,
-  );
+  app.use("/api/v1", apiRateLimit(120), router);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

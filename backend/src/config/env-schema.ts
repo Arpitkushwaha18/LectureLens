@@ -40,11 +40,23 @@ export const envSchema = z
       .default("info"),
     SERVICE_VERSION: z.string().min(1).default("0.1.0"),
     FRONTEND_ORIGIN: z.string().min(1).default("http://localhost:5173"),
+    TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(3).default(0),
+    SESSION_SAME_SITE: z.enum(["lax", "strict", "none"]).default("lax"),
     SUPABASE_URL: optionalValue,
     SUPABASE_SECRET_KEY: optionalValue,
+    GALLERY_ADMIN_PASSWORD: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().min(16).max(256).optional(),
+    ),
     GEMINI_API_KEY: optionalValue,
+    GEMINI_BACKUP_API_KEY: optionalValue,
     GEMINI_MODEL: optionalValue,
-    AI_PROVIDER: z.enum(["gemini", "freegg"]).default("gemini"),
+    GEMINI_TUTOR_MODEL: z
+      .string()
+      .regex(/^gemini-[a-z0-9.-]{1,100}$/)
+      .refine((model) => !model.endsWith("-latest"), "Use an explicit Gemini tutor model ID")
+      .default("gemini-3.5-flash-lite"),
+    AI_PROVIDER: z.enum(["gemini", "freegg"]).default("freegg"),
     FREEGG_API_KEY: optionalValue,
     FREEGG_MODEL: z
       .string()
@@ -54,21 +66,22 @@ export const envSchema = z
     LIBRARY_STORE: z.enum(["local_postgres", "supabase"]).default("local_postgres"),
     TRANSCRIPTFETCH_API_KEY: optionalValue,
     TRANSCRIPT_MAX_CHARACTERS: z.coerce.number().int().min(1).max(500000).default(500000),
-    OCR_LANGUAGES: z
-      .string()
-      .regex(/^(eng|hin)(\+(eng|hin))?$/)
-      .default("eng+hin"),
-    OCR_TESSERACT_PATH: z.string().min(1).default("tesseract"),
-    OCR_TESSERACT_LIBRARY: optionalValue,
-    OCR_DPI: z.coerce.number().int().min(100).max(220).default(150),
-    OCR_MIN_TEXT_CHARACTERS: z.coerce.number().int().min(24).max(500).default(80),
     DOCUMENT_EXTRACT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(180000).default(180000),
-    OCR_PAGE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
-    OCR_TESSDATA_DIR: optionalValue,
-    OCR_MAX_IMAGES: z.coerce.number().int().min(1).max(50).default(30),
     TRANSCRIPT_MAX_DURATION_SECONDS: z.coerce.number().int().min(1).max(18000).default(18000),
   })
   .superRefine((env, ctx) => {
+    if (env.SESSION_SAME_SITE === "none" && env.NODE_ENV !== "production")
+      ctx.addIssue({
+        code: "custom",
+        path: ["SESSION_SAME_SITE"],
+        message: "SameSite=None requires production HTTPS",
+      });
+    if (env.NODE_ENV === "production" && (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY))
+      ctx.addIssue({
+        code: "custom",
+        path: ["SUPABASE_URL"],
+        message: "Production requires Supabase configuration",
+      });
     if (env.FREEGG_API_KEY && (env.FREEGG_API_KEY.length > 4096 || /\s/.test(env.FREEGG_API_KEY)))
       ctx.addIssue({
         code: "custom",
@@ -92,19 +105,20 @@ export const envSchema = z
         message: "Invalid TranscriptFetch key format",
       });
     }
-    if (Boolean(env.GEMINI_API_KEY) !== Boolean(env.GEMINI_MODEL)) {
+    if (
+      (env.GEMINI_MODEL && !env.GEMINI_API_KEY) ||
+      (env.AI_PROVIDER === "gemini" && env.GEMINI_API_KEY && !env.GEMINI_MODEL)
+    ) {
       ctx.addIssue({
         code: "custom",
         path: ["GEMINI_MODEL"],
-        message: "Set both GEMINI_API_KEY and GEMINI_MODEL in backend/.env, or leave both unset",
+        message:
+          "Gemini study generation requires GEMINI_API_KEY and GEMINI_MODEL; tutor-only use requires just GEMINI_API_KEY",
       });
     }
-    if (env.GEMINI_API_KEY && !isValidGeminiKeyFormat(env.GEMINI_API_KEY)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["GEMINI_API_KEY"],
-        message: "Invalid Gemini API key format",
-      });
+    for (const name of ["GEMINI_API_KEY", "GEMINI_BACKUP_API_KEY"] as const) {
+      if (env[name] && !isValidGeminiKeyFormat(env[name]))
+        ctx.addIssue({ code: "custom", path: [name], message: "Invalid Gemini API key format" });
     }
     if (
       env.GEMINI_MODEL &&

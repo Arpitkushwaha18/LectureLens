@@ -3,7 +3,7 @@ import { env } from "../../config/env.js";
 import { NotesGenerationError, classifyGeminiError } from "./gemini-notes.js";
 import { recordGenerationEvidence } from "./generation-evidence.js";
 import { logger } from "../../lib/logger.js";
-export function geminiClient(key: string) {
+export function geminiClient(key: string, retryTemporaryOnce = false) {
   return new GoogleGenAI({
     apiKey: key,
     vertexai: false,
@@ -23,6 +23,27 @@ export function geminiClient(key: string) {
             url,
             paid ? { ...options, redirect: "error" } : options,
           );
+          // Quick Ask only: retry one explicit 503 rejection, never an unknown
+          // transport/timeout outcome and never a quota or long Retry-After.
+          if (
+            paid &&
+            retryTemporaryOnce &&
+            response.status === 503 &&
+            !response.headers.has("retry-after")
+          ) {
+            const body = (await response
+              .clone()
+              .json()
+              .catch(() => null)) as { error?: { details?: { retryDelay?: string }[] } } | null;
+            const details = Array.isArray(body?.error?.details) ? body.error.details : [];
+            if (!details.some((detail) => detail?.retryDelay)) {
+              await recordGenerationEvidence({ kind: "response", httpStatus: 503 });
+              await response.body?.cancel();
+              await new Promise((resolve) => setTimeout(resolve, 400));
+              await recordGenerationEvidence({ kind: "dispatch" });
+              response = await globalThis.fetch(url, { ...options, redirect: "error" });
+            }
+          }
         } catch (error) {
           const code = (error as { cause?: { code?: string } })?.cause?.code;
           // DNS resolution/connection refusal prove no HTTP request was delivered.

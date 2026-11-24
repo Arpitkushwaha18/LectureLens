@@ -9,7 +9,20 @@ const supabase =
     ? createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
         auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
         global: {
-          fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(10_000) }),
+          fetch: (input, init) => {
+            // A 20 MB admin PDF needs more than the normal metadata/RPC budget.
+            const url = new URL(input instanceof Request ? input.url : String(input));
+            const timeout = AbortSignal.timeout(
+              init?.method?.toUpperCase() === "POST" &&
+                url.pathname.startsWith("/storage/v1/object/")
+                ? 120_000
+                : 10_000,
+            );
+            return fetch(input, {
+              ...init,
+              signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
+            });
+          },
         },
       })
     : null;

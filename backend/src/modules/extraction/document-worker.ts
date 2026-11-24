@@ -1,11 +1,8 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { getDocument, OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import * as XLSX from "@e965/xlsx";
 import { parse } from "csv-parse/sync";
 import yauzl from "yauzl";
-import { createCanvas } from "@napi-rs/canvas";
-import { OcrSession } from "./ocr.js";
-import { workbookImages } from "./xlsx-images.js";
 import { MAX_SOURCE_CHARACTERS, type ExtractedSource } from "@lecturelens/contracts";
 
 const inputError = (message: string) => {
@@ -20,8 +17,6 @@ const bytes = Buffer.from(workerData.bytes as Uint8Array);
 const kind: string = workerData.kind;
 const extension: string = workerData.extension;
 const limits = { pages: 200, sheets: 30, rows: 5000, cols: 100, characters: MAX_SOURCE_CHARACTERS };
-const maxImages = Number(process.env.OCR_MAX_IMAGES || 30);
-const ocrSession = new OcrSession();
 const progress = (message: string) => parentPort?.postMessage({ progress: message });
 const metric = (phase: string, started: number) =>
   parentPort?.postMessage({
@@ -73,7 +68,6 @@ async function extract() {
       const pages = [];
       const failedPages: { page: number; reason: string; retryable: boolean }[] = [];
       let chars = 0;
-      let ocrPages = 0;
       for (let page = 1; page <= pdf.numPages; page++) {
         const previous = workerData.previous as ExtractedSource | undefined;
         const reused = previous?.pages?.find(
@@ -96,87 +90,24 @@ async function extract() {
           .map((item) => ("str" in item ? item.str + (item.hasEOL ? "\n" : " ") : ""))
           .join("")
           .trim();
-        let ocr = false;
-        const textCharacters = text.replace(/\s/g, "").length;
-        let needsOcr = textCharacters === 0;
-        if (
-          textCharacters > 0 &&
-          textCharacters < Number(process.env.OCR_MIN_TEXT_CHARACTERS || 80)
-        ) {
-          const operations = await pdfPage.getOperatorList();
-          needsOcr = operations.fnArray.some((operation) =>
-            [
-              OPS.paintImageXObject,
-              OPS.paintInlineImageXObject,
-              OPS.paintImageXObjectRepeat,
-            ].includes(operation),
-          );
-        }
-        if (needsOcr) {
-          ++ocrPages;
-          try {
-            if (ocrPages > maxImages)
-              throw new Error(`The ${maxImages}-page OCR budget was reached. Split this PDF.`);
-            progress(`Running local English/Hindi OCR on PDF page ${page} of ${pdf.numPages}`);
-            const initial = pdfPage.getViewport({ scale: 1 });
-            const viewport = pdfPage.getViewport({
-              scale: Math.min(
-                Number(process.env.OCR_DPI || 150) / 72,
-                1900 / Math.max(initial.width, initial.height),
-              ),
-            });
-            if (viewport.width * viewport.height > 16000000)
-              fail("PDF page exceeds OCR pixel limits. Resize the scan.");
-            const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-            const renderStart = performance.now();
-            const render = pdfPage.render({
-              canvas,
-              canvasContext: canvas.getContext("2d"),
-              viewport,
-            } as unknown as Parameters<typeof pdfPage.render>[0]);
-            const renderTimer = setTimeout(
-              () => render.cancel(),
-              Number(process.env.OCR_PAGE_TIMEOUT_MS || 15000),
-            );
-            try {
-              await render.promise;
-            } finally {
-              clearTimeout(renderTimer);
-            }
-            metric("pdf-render", renderStart);
-            const recognized = await ocrSession.image(
-              canvas.toBuffer("image/png"),
-              -pdfPage.rotate,
-            );
-            text = text.trim() ? `${text}\n[OCR-derived page content]\n${recognized}` : recognized;
-            ocr = true;
-          } catch (error) {
-            failedPages.push({
-              page,
-              reason: error instanceof Error ? error.message : "OCR failed.",
-              retryable: true,
-            });
-          }
-        }
+        // This is a bounded preview only. The complete PDF is sent to the model.
+        text = text.slice(0, Math.max(0, 80000 - chars));
         chars += text.length;
-        if (chars > limits.characters)
-          fail("Extracted PDF text exceeds 100,000 characters. Split the document.");
-        pages.push({ page, text, ...(ocr ? { ocr: true } : {}) });
+        pages.push({ page, text });
         parentPort?.postMessage({ checkpoint: { pages, failedPages, totalPages: pdf.numPages } });
         pdfPage.cleanup();
       }
-      if (ocrPages)
-        warnings.push(
-          `Local OCR used for ${ocrPages} page(s). Verify OCR-derived text, especially formulas and low-quality scans.`,
-        );
+      warnings.push(
+        "Embedded-text preview only. The complete PDF is sent to the AI provider, including scanned pages. Local OCR is disabled; model file support and readability determine the result.",
+      );
       const text = pages
         .map(
           (page) =>
-            `[Page ${page.page}${page.ocr ? " · OCR-derived text" : ""}]\n${page.text}${failedPages.some((failed) => failed.page === page.page) ? "\n[This page could not be fully extracted; no missing text was invented.]" : ""}`,
+            `[Page ${page.page}]\n${page.text || "[No embedded text; read this page from the attached PDF.]"}`,
         )
         .join("\n\n");
       if (text.length > limits.characters)
-        fail("Extracted PDF text/OCR exceeds 100,000 characters. Split the document.");
+        fail("PDF preview exceeds the content limit. Split the document.");
       return {
         kind: "pdf",
         text,
@@ -258,54 +189,9 @@ async function extract() {
       );
       return { name, headers: rows[0] ?? [], rows: rows.slice(1) };
     });
-    if (extension === "xlsx") {
-      const imageStart = performance.now();
-      const { images, warnings: imageWarnings } = await workbookImages(bytes);
-      metric("xlsx-images", imageStart);
-      warnings.push(...imageWarnings);
-      for (const [i, image] of images.entries()) {
-        progress(
-          `Running local OCR on worksheet ${image.sheet}, image ${i + 1} of ${images.length}`,
-        );
-        const sheet = sheets.find((sheet) => sheet.name === image.sheet);
-        if (!sheet) continue;
-        try {
-          const previous = workerData.previous as ExtractedSource | undefined;
-          const reused = previous?.sheets
-            ?.find((entry) => entry.name === image.sheet)
-            ?.images?.find(
-              (entry) => entry.name === image.name && entry.location === image.location,
-            );
-          if (!reused && i >= maxImages)
-            throw new Error(`The ${maxImages}-image OCR budget was reached. Split the workbook.`);
-          const text = reused?.text ?? (await ocrSession.image(image.bytes));
-          sheet.images ??= [];
-          sheet.images.push({
-            name: image.name,
-            text,
-            ...(image.location ? { location: image.location } : {}),
-          });
-        } catch (error) {
-          failedImages.push({
-            sheet: image.sheet,
-            name: image.name,
-            ...(image.location ? { location: image.location } : {}),
-            reason: error instanceof Error ? error.message : "OCR failed.",
-            retryable: true,
-          });
-          warnings.push(
-            `Worksheet “${image.sheet}”, ${image.name}: ${error instanceof Error ? error.message : "OCR failed"}`,
-          );
-        }
-      }
-      if (images.length)
-        warnings.push(
-          "Embedded-image OCR is separate from cell text. Verify OCR-derived text before studying.",
-        );
-    } else
-      warnings.push(
-        "Legacy XLS embedded-image extraction is not supported. Cell data is preserved; export to XLSX for image OCR.",
-      );
+    warnings.push(
+      "Only spreadsheet cell text is read. Embedded images are not processed; upload a PDF to send visual content to the AI provider.",
+    );
   }
   for (const sheet of sheets) {
     if (
@@ -330,11 +216,11 @@ async function extract() {
   const text = sheets
     .map(
       (sheet) =>
-        `[Sheet: ${sheet.name}]\n[Cell text]\nHeaders: ${JSON.stringify(sheet.headers)}\n${sheet.rows.map((row, i) => `Row ${i + 2}: ${JSON.stringify(row)}`).join("\n")}\n${(sheet.images || []).map((image) => `[OCR-derived image: ${image.name}${image.location ? `; ${image.location}` : ""}]\n${image.text}`).join("\n\n")}`,
+        `[Sheet: ${sheet.name}]\n[Cell text]\nHeaders: ${JSON.stringify(sheet.headers)}\n${sheet.rows.map((row, i) => `Row ${i + 2}: ${JSON.stringify(row)}`).join("\n")}`,
     )
     .join("\n\n");
   if (text.length > limits.characters)
-    fail("Extracted spreadsheet/OCR text exceeds 100,000 characters. Split the workbook.");
+    fail("Extracted spreadsheet text exceeds 100,000 characters. Split the workbook.");
   return {
     kind: "spreadsheet",
     partial: failedImages.length > 0,
@@ -355,6 +241,4 @@ try {
         ? error.message
         : "File is corrupt, encrypted or unsupported. Upload a valid unlocked PDF or spreadsheet.",
   });
-} finally {
-  await ocrSession.close();
 }

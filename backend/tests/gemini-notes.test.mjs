@@ -131,7 +131,11 @@ describe("B3 official Gemini integration with mock transport, no live API calls"
   it("requires paired backend config and an explicit model instead of guessing a default", () => {
     assert.equal(envSchema.safeParse({}).success, true);
     const key = "not_a_real_api_key_fixture";
-    assert.equal(envSchema.safeParse({ GEMINI_API_KEY: key }).success, false);
+    assert.equal(
+      envSchema.safeParse({ AI_PROVIDER: "gemini", GEMINI_API_KEY: key }).success,
+      false,
+    );
+    assert.equal(envSchema.safeParse({ AI_PROVIDER: "freegg", GEMINI_API_KEY: key }).success, true);
     assert.equal(envSchema.safeParse({ GEMINI_MODEL: "gemini-test-fixture" }).success, false);
     assert.equal(
       envSchema.safeParse({ GEMINI_API_KEY: key, GEMINI_MODEL: "gemini-test-fixture" }).success,

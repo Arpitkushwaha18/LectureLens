@@ -138,12 +138,6 @@ export function createFencedTranscriptProvider(
           ...(outcome.transcript.metadata.usage
             ? { usage: outcome.transcript.metadata.usage }
             : {}),
-          ...(outcome.transcript.metadata.sourceMetadata
-            ? { sourceMetadata: outcome.transcript.metadata.sourceMetadata }
-            : {}),
-          ...(outcome.transcript.metadata.usage
-            ? { usage: outcome.transcript.metadata.usage }
-            : {}),
         }))
       )
         return {

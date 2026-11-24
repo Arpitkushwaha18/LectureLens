@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { useState } from "react";
-import type { WorkspaceResult } from "@lecturelens/contracts";
+import type { WorkspaceResult, ResourceContent } from "@lecturelens/contracts";
 import { Button } from "@/components/ui/Button";
 import { Notebook } from "./Notebook";
 import { API_BASE_URL } from "@/lib/api";
@@ -10,8 +10,10 @@ import { resourceLabels } from "@/features/resources/resource-labels";
 
 export function NotebookResults({
   result,
+  content,
 }: {
   result: Extract<WorkspaceResult, { status: "ready" }>;
+  content?: ResourceContent;
 }) {
   const [printing, setPrinting] = useState(false);
   const [selected, setSelected] = useState(result.materials[0]!.outputType);
@@ -26,7 +28,7 @@ export function NotebookResults({
       if (!root) throw new Error("Notebook is unavailable");
       const response = await fetch(`${API_BASE_URL}/workspace/export`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-LectureLens-Request": "1" },
         body: JSON.stringify({ html: root.innerHTML }),
         signal: AbortSignal.timeout(60000),
       });
@@ -47,17 +49,18 @@ export function NotebookResults({
   }
   const notebooks = result.materials.map((material, i) => (
     <section key={i} className="material-section">
-      <p className="material-label">
-        {material.outputType.replaceAll("_", " ")} ·{" "}
-        {material.cached ? "Reused notes" : "Prepared for you"}
-      </p>
-      <Notebook notebook={material.notebook} sourceName={result.source.name} />
+      <p className="material-label">{material.outputType.replaceAll("_", " ")}</p>
+      <Notebook notebook={material.notebook} sourceName={result.source.name} notesOnly />
     </section>
   ));
   return (
     <section className="mt-6" aria-label="Generated study material">
       <div className="result-toolbar mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-2xl">Your study set is ready</h2>
+        <h2 className="text-2xl">
+          {result.completionStatus === "partially_completed"
+            ? "Your completed materials"
+            : "Your study set is ready"}
+        </h2>
         <Button onClick={() => void exportPdf()} disabled={printing}>
           {printing ? "Preparing PDF…" : "Export PDF"}
         </Button>
@@ -81,11 +84,24 @@ export function NotebookResults({
           </button>
         ))}
       </div>
-      <ResourceExperience
-        key={current.outputType}
-        content={notebookToResource(current.notebook, current.outputType)}
-        sourceName={result.source.name}
-      />
+      {result.materials.map((material) => (
+        <div
+          key={material.resourceId ?? material.outputType}
+          hidden={current.outputType !== material.outputType}
+          role="tabpanel"
+          aria-label={resourceLabels[material.outputType]}
+        >
+          <ResourceExperience
+            content={
+              content?.type === material.outputType
+                ? content
+                : notebookToResource(material.notebook, material.outputType)
+            }
+            sourceName={result.source.name}
+            resourceId={material.resourceId}
+          />
+        </div>
+      ))}
       {createPortal(<div id="notebook-print-root">{notebooks}</div>, document.body)}
     </section>
   );

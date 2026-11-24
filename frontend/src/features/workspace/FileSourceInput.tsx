@@ -66,8 +66,8 @@ export function FileSourceInput({ source, file, error, onSelect, onRemove }: Fil
           Choose {isPdf ? "PDF" : "file"}
         </Button>
         <p className="mt-3 text-[11px] text-ink-muted">
-          Your file is uploaded only when you click Continue. It stays private to your study
-          session.
+          Your file is sent only when you click Continue. It is processed temporarily, not saved to
+          our database. Download your results before leaving this page.
         </p>
       </div>
 

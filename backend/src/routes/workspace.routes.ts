@@ -1,10 +1,13 @@
 import { Router, type RequestHandler } from "express";
 import multer from "multer";
-import { rateLimit } from "express-rate-limit";
+import { apiRateLimit } from "../middleware/rate-limit.js";
 import { ZodError } from "zod";
 import { workspaceEventSchema } from "@lecturelens/contracts";
 import { videoVerifier } from "../services/video-verification.js";
-import { processWorkspace } from "../services/workspace.service.js";
+import {
+  processTemporaryWorkspace as processWorkspace,
+  askTemporaryTutor,
+} from "../services/temporary-workspace.service.js";
 import { MAX_UPLOAD_BYTES } from "../modules/extraction/documents.js";
 import type { WorkspaceCache } from "../repositories/workspace-cache.js";
 import { AppError } from "../lib/errors.js";
@@ -12,60 +15,41 @@ import { NotesGenerationError } from "../modules/ai/gemini-notes.js";
 import { studentGenerationFailure } from "../modules/ai/generation-lifecycle.js";
 import { z } from "zod";
 import { generateNotebookPdf } from "../services/notebook-pdf.service.js";
-import { studyLibrary, type StudyLibrary } from "../repositories/study-library.js";
-import { studyActor, requireStudyRequest } from "../services/study-session.js";
-import { askTutor } from "../services/tutor.service.js";
+import { type StudyLibrary } from "../repositories/study-library.js";
+import { requireStudyRequest } from "../services/study-session.js";
 
 export function createWorkspaceRouter(
   process = processWorkspace,
   _historicalGallery?: () => ReturnType<WorkspaceCache["gallery"]>,
   requestsPerMinute = 20,
-  libraryOverride?: () => StudyLibrary,
+  _libraryOverride?: () => StudyLibrary,
   verificationOverride: typeof videoVerifier = videoVerifier,
-  tutorOverride: typeof askTutor = askTutor,
+  tutorOverride: (input: unknown, ownerId?: string) => Promise<unknown> = askTemporaryTutor,
 ) {
   const router = Router();
-  router.post(
-    "/ask",
-    rateLimit({ windowMs: 60000, limit: 6, standardHeaders: "draft-8", legacyHeaders: false }),
-    async (req, res) => {
+  router.post("/ask", apiRateLimit(6), async (req, res) => {
+    requireStudyRequest(req);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ data: await tutorOverride(req.body) });
+  });
+  router.post("/verify", apiRateLimit(12), async (req, res) => {
+    requireStudyRequest(req);
+    res.setHeader("Cache-Control", "no-store");
+    const { url } = z.strictObject({ url: z.string().max(2048) }).parse(req.body);
+    res.json({ data: await verificationOverride.verify(url) });
+  });
+  router.post("/export", apiRateLimit(10), async (req, res, next) => {
+    try {
       requireStudyRequest(req);
-      const library = libraryOverride?.() ?? studyLibrary();
-      const ownerId = await studyActor(req, res, library);
-      if (!ownerId)
-        throw new AppError("Please sign in before asking a question.", {
-          code: "STUDY_AUTH_REQUIRED",
-          statusCode: 401,
-        });
+      const { html } = z.strictObject({ html: z.string().min(1).max(1000000) }).parse(req.body);
+      const pdf = await generateNotebookPdf(html);
       res.setHeader("Cache-Control", "no-store");
-      res.json({ data: await tutorOverride(req.body, ownerId) });
-    },
-  );
-  router.post(
-    "/verify",
-    rateLimit({ windowMs: 60000, limit: 12, standardHeaders: "draft-8", legacyHeaders: false }),
-    async (req, res) => {
-      requireStudyRequest(req);
-      res.setHeader("Cache-Control", "no-store");
-      const { url } = z.strictObject({ url: z.string().max(2048) }).parse(req.body);
-      res.json({ data: await verificationOverride.verify(url) });
-    },
-  );
-  router.post(
-    "/export",
-    rateLimit({ windowMs: 60000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false }),
-    async (req, res, next) => {
-      try {
-        const { html } = z.strictObject({ html: z.string().min(1).max(1000000) }).parse(req.body);
-        const pdf = await generateNotebookPdf(html);
-        res.setHeader("Cache-Control", "no-store");
-        res.setHeader("Content-Disposition", 'attachment; filename="lecturelens-notebook.pdf"');
-        res.type("application/pdf").send(pdf);
-      } catch (error) {
-        next(error);
-      }
-    },
-  );
+      res.setHeader("Content-Disposition", 'attachment; filename="lecturelens-notebook.pdf"');
+      res.type("application/pdf").send(pdf);
+    } catch (error) {
+      next(error);
+    }
+  });
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: MAX_UPLOAD_BYTES, files: 1, fields: 1, fieldSize: 10000, parts: 2 },
@@ -91,12 +75,7 @@ export function createWorkspaceRouter(
       } catch {
         throw new AppError("Invalid source options.", { code: "SOURCE_INVALID", statusCode: 400 });
       }
-      const library =
-        libraryOverride?.() ?? (process === processWorkspace ? studyLibrary() : undefined);
-      const context = library
-        ? (requireStudyRequest(req), { ownerId: (await studyActor(req, res, library))!, library })
-        : undefined;
-      const result = await process(options, req.file, send, controller.signal, context);
+      const result = await process(options, req.file, send, controller.signal);
       send({ event: "result", result });
     } catch (error) {
       send({
@@ -114,7 +93,7 @@ export function createWorkspaceRouter(
               ? error.message
               : error instanceof ZodError
                 ? "Invalid source or selection. Check the YouTube URL, file and selected outputs."
-                : "Processing failed safely. Check backend configuration and try again only if no paid request was started.",
+                : "Processing could not be completed. Please retry.",
         retryable:
           error instanceof NotesGenerationError
             ? studentGenerationFailure(error.code).retryable
@@ -128,6 +107,11 @@ export function createWorkspaceRouter(
                   "FILE_TIMEOUT",
                   "CONTENT_LIMIT",
                   "SOURCE_INVALID",
+                  "GENERATION_FAILED",
+                  "TRANSCRIPT_UNAVAILABLE",
+                  "TRANSCRIPT_TIMEOUT",
+                  "TRANSCRIPT_UPSTREAM_UNAVAILABLE",
+                  "TRANSCRIPT_REQUEST_FAILED",
                 ].includes(error.code)),
         ...(error instanceof NotesGenerationError && error.retryable
           ? { retryAfterSeconds: error.retryAfterSeconds }
@@ -141,12 +125,11 @@ export function createWorkspaceRouter(
   };
   router.post(
     "/process",
-    rateLimit({
-      windowMs: 60000,
-      limit: requestsPerMinute,
-      standardHeaders: "draft-8",
-      legacyHeaders: false,
-    }),
+    async (req, _res, next) => {
+      requireStudyRequest(req);
+      next();
+    },
+    apiRateLimit(requestsPerMinute),
     (req, res, next) => {
       if (active >= 2) {
         res.status(429).json({

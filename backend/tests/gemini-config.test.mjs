@@ -8,7 +8,7 @@ import { fixtureNotes } from "./helpers/database.mjs";
 const aq = `AQ.${"synthetic_fixture_".repeat(4)}`;
 const validModel = "gemini-3.8-flash";
 const configured = (key, model = validModel) =>
-  envSchema.safeParse({ GEMINI_API_KEY: key, GEMINI_MODEL: model });
+  envSchema.safeParse({ AI_PROVIDER: "gemini", GEMINI_API_KEY: key, GEMINI_MODEL: model });
 
 describe("Gemini key and model format validation", () => {
   it("accepts synthetic AQ keys including payload/total-length boundaries", () => {

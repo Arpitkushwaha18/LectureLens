@@ -110,12 +110,7 @@ try {
           new URL("../../backend/.cache/live-workflow/transactions.pdf", import.meta.url),
         ),
       );
-    for (const name of [
-      "Detailed notes",
-      "Short notes",
-      "Mind maps",
-      "Sample question papers",
-    ])
+    for (const name of ["Detailed notes", "Short notes", "Mind maps", "Sample question papers"])
       await page.getByRole("checkbox", { name, exact: true }).check();
     await page.getByRole("button", { name: "Continue", exact: true }).click();
     await page

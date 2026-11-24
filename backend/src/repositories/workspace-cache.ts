@@ -33,6 +33,13 @@ export class WorkspaceCache {
       create table if not exists unavailable_captions (identity text primary key, message text not null);`);
     if (
       !this.db
+        .prepare("pragma table_info(unavailable_captions)")
+        .all()
+        .some((row) => row.name === "expires_at")
+    )
+      this.db.exec("alter table unavailable_captions add column expires_at integer");
+    if (
+      !this.db
         .prepare("pragma table_info(material_jobs)")
         .all()
         .some((row) => row.name === "operation")
@@ -112,14 +119,16 @@ export class WorkspaceCache {
   }
   unavailableCaptions(videoId: string, language: string): string | null {
     const row = this.db
-      .prepare("select message from unavailable_captions where identity=?")
-      .get(`${videoId}:${language}`);
+      .prepare("select message from unavailable_captions where identity=? and expires_at>?")
+      .get(`${videoId}:${language}`, Date.now());
     return row ? String(row.message) : null;
   }
   rememberUnavailableCaptions(videoId: string, language: string, message: string) {
     this.db
-      .prepare("insert or ignore into unavailable_captions values (?,?)")
-      .run(`${videoId}:${language}`, message);
+      .prepare(
+        "insert into unavailable_captions(identity,message,expires_at) values (?,?,?) on conflict(identity) do update set message=excluded.message,expires_at=excluded.expires_at",
+      )
+      .run(`${videoId}:${language}`, message, Date.now() + 60 * 60 * 1000);
   }
   extraction(key: string) {
     const row = this.db.prepare("select payload from extraction_cache where identity=?").get(key);

@@ -156,3 +156,40 @@ it("switching to FreeGG does not replay an uncertain Gemini tutor request", () =
       else process.env.GEMINI_MODEL = previous;
     }
   }));
+it("switching Ask doubts from FreeGG to Gemini preserves the previous uncertain fence", () =>
+  fixture(async (cache) => {
+    const { env } = await import("../dist/config/env.js");
+    const prompt = "Explain stack memory.",
+      ownerId = "owner-a";
+    const operation = createHash("sha256")
+      .update(
+        JSON.stringify({
+          ownerId,
+          prompt,
+          model: `freegg:${env.FREEGG_MODEL}`,
+          version: "urtutor-question-v1",
+          schema: 2,
+        }),
+      )
+      .digest("hex");
+    const key = createHash("sha256").update(`${operation}:english-v2`).digest("hex");
+    const token = cache.claim(key, operation);
+    cache.evidence(key, token, { kind: "dispatch" });
+    cache.fail(key, token, "GEMINI_UNCERTAIN", false);
+    let calls = 0;
+    const service = createTutorService({
+      cache: () => cache,
+      gemini: () => ({
+        model: "gemini-3.5-flash-lite",
+        generate: async () => {
+          calls++;
+          return notebook;
+        },
+      }),
+    });
+    await assert.rejects(
+      () => service({ prompt }, ownerId),
+      (error) => error.code === "TUTOR_PENDING",
+    );
+    assert.equal(calls, 0);
+  }));

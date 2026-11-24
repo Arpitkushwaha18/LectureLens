@@ -2,10 +2,7 @@ import { z } from "zod";
 import { MAX_SOURCE_CHARACTERS, MAX_SOURCE_BYTES } from "./limits.js";
 import { notebookBlockSchema } from "./notebook.js";
 import { canonicalVideoSourceSchema, youtubeUrlSchema } from "./youtube.js";
-import {
-  transcriptLanguageSchema,
-  transcriptProviderOutcomeSchema,
-} from "./learning.js";
+import { transcriptLanguageSchema, transcriptProviderOutcomeSchema } from "./learning.js";
 
 export const NOTES_SCHEMA_VERSION = 1;
 export const MAX_NOTES_TRANSCRIPT_CHARACTERS = MAX_SOURCE_CHARACTERS;

@@ -10,7 +10,9 @@ export async function libraryRequest(path: string, init: RequestInit = {}) {
       ...init.headers,
     },
     cache: "no-store",
-    signal: init.signal ?? AbortSignal.timeout(15000),
+    signal: init.signal
+      ? AbortSignal.any([init.signal, AbortSignal.timeout(15000)])
+      : AbortSignal.timeout(15000),
   });
   const body = await response.json().catch(() => null);
   if (!response.ok)
@@ -35,12 +37,13 @@ let expires = 0;
 export async function openStudySession(refresh = false) {
   if (refresh || !session || Date.now() > expires) {
     expires = Date.now() + 60000;
-    session = libraryRequest("/session", { method: "POST" })
+    const pending = libraryRequest("/session", { method: "POST" })
       .then((body) => sessionSchema.parse(body).data)
       .catch((error) => {
-        session = null;
+        if (session === pending) session = null;
         throw error;
       });
+    session = pending;
   }
   return session;
 }

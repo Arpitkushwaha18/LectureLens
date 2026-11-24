@@ -22,6 +22,48 @@ const completion = (content, status = "completed") =>
       ],
     }),
   );
+it("FreeGG serializes PDF bytes as Responses input_file, not a text placeholder", async () => {
+  const data = Buffer.from("%PDF-1.7 synthetic fixture").toString("base64");
+  let calls = 0;
+  const generate = createGeminiStudyGenerator(
+    "gpt-6.1-sol",
+    freeggTransport("fixture-secret", async (url, options) => {
+      calls++;
+      assert.equal(url, "https://freegg.app/v1/responses");
+      const body = JSON.parse(options.body);
+      const content = body.input[1].content;
+      assert.equal(content[0].type, "input_text");
+      assert.match(content[0].text, /attached complete PDF/);
+      assert.deepEqual(content[1], {
+        type: "input_file",
+        filename: "scan.pdf",
+        file_data: `data:application/pdf;base64,${data}`,
+      });
+      assert.equal(body.store, false);
+      return completion(JSON.stringify(notebook));
+    }),
+  );
+  assert.deepEqual(
+    await generate("PDF preview.", "detailed_notes", { pdf: { data, name: "scan.pdf" } }),
+    notebook,
+  );
+  assert.equal(calls, 1);
+});
+it("a rejected PDF causes one request only, without a text-only/provider fallback", async () => {
+  let calls = 0;
+  const generate = createGeminiStudyGenerator(
+    "gpt-6.1-sol",
+    freeggTransport("fixture-secret", async () => {
+      calls++;
+      return new Response("private upstream message", { status: 400 });
+    }),
+  );
+  await assert.rejects(
+    () => generate("PDF preview.", "detailed_notes", { pdf: { data: "cGRm", name: "scan.pdf" } }),
+    (error) => error.code === "GEMINI_REQUEST_INVALID",
+  );
+  assert.equal(calls, 1);
+});
 it("FreeGG sends the full lecture with English/schema instructions to the selected endpoint, without Gemini metadata or retries", async () => {
   let calls = 0;
   const text = "कंप्यूटर संगठन में निर्देश महत्वपूर्ण हैं। ".repeat(7000);

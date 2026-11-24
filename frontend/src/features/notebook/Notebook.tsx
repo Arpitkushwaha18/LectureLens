@@ -235,42 +235,42 @@ export function NotebookBlockView({ value }: { value: unknown }) {
 export function Notebook({
   notebook,
   sourceName,
+  notesOnly = false,
 }: {
   notebook: NotebookData;
   sourceName?: string;
+  notesOnly?: boolean;
 }) {
   const blocks = notebook.blocks.filter((block) => {
     if ("text" in block) return Boolean(block.text.replace(/[\s\u200B\u2060\uFEFF]/g, ""));
     return true;
   });
   return (
-    <article className="study-notebook" aria-label={notebook.title}>
-      <header className="notebook-heading">
-        <p className="notebook-kicker">LectureLens · study notebook</p>
-        <h1>{notebook.title}</h1>
-        {sourceName ? <p className="notebook-source">Based on: {sourceName}</p> : null}
-      </header>
-      <div className="notebook-content">
-        {blocks.map((block, i) => (
-          <div key={i} className="notebook-block" data-block-type={block.type}>
-            <NotebookBlockView value={block} />
-          </div>
-        ))}
-      </div>
-      {notebook.limitations.length ? (
-        <section className="notebook-limitations">
-          <h2>Keep in mind</h2>
+    <>
+      <article className="study-notebook" aria-label={notebook.title}>
+        <header className="notebook-heading">
+          <p className="notebook-kicker">LectureLens · study notebook</p>
+          <h1>{notebook.title}</h1>
+          {sourceName ? <p className="notebook-source">Based on: {sourceName}</p> : null}
+        </header>
+        <div className="notebook-content">
+          {blocks.map((block, i) => (
+            <div key={i} className="notebook-block" data-block-type={block.type}>
+              <NotebookBlockView value={block} />
+            </div>
+          ))}
+        </div>
+      </article>
+      {!notesOnly && notebook.limitations.length ? (
+        <details className="notebook-limitations">
+          <summary>Source checks · not included in your PDF</summary>
           <ul>
             {notebook.limitations.map((item, i) => (
               <li key={i}>{item}</li>
             ))}
           </ul>
-        </section>
+        </details>
       ) : null}
-      <p className="notebook-disclaimer">
-        AI learning assistance · verify important facts against your source. Not actual
-        previous-year questions.
-      </p>
-    </article>
+    </>
   );
 }

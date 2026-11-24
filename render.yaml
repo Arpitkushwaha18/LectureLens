@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: lecturelens-api
+    runtime: node
+    buildCommand: npm --prefix contracts ci && npm --prefix backend ci && npm --prefix backend run build && cd backend && npx playwright install --with-deps chromium
+    startCommand: npm --prefix backend start
+    healthCheckPath: /api/v1/health
+    autoDeploy: false
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: NODE_ENV
+        value: production
+      - key: LIBRARY_STORE
+        value: supabase
+      - key: TRUST_PROXY_HOPS
+        value: 1
+      - key: SESSION_SAME_SITE
+        value: none
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: GALLERY_ADMIN_PASSWORD
+        sync: false
+      - key: AI_PROVIDER
+        value: freegg
+      - key: FREEGG_API_KEY
+        sync: false
+      - key: FREEGG_MODEL
+        value: gpt-6.1-sol
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_TUTOR_MODEL
+        value: gemini-3.5-flash-lite
+      - key: TRANSCRIPTFETCH_API_KEY
+        sync: false

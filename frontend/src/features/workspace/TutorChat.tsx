@@ -11,7 +11,6 @@ import { notebookSchema, type Notebook as NotebookData } from "@lecturelens/cont
 import { Button } from "@/components/ui/Button";
 import { Notebook } from "@/features/notebook/Notebook";
 import { API_BASE_URL } from "@/lib/api";
-import { openStudySession } from "@/features/library/library-api";
 import { Link } from "react-router-dom";
 
 type Turn = {
@@ -20,6 +19,8 @@ type Turn = {
   status: "pending" | "done" | "error";
   answer?: NotebookData;
   error?: string;
+  answerMode?: "auto" | "quick" | "detailed";
+  provider?: string;
 };
 
 const suggestions = [
@@ -37,6 +38,7 @@ export function TutorChat({ initialPrompt = "" }: { initialPrompt?: string }) {
   const [draft, setDraft] = useState(""),
     [busy, setBusy] = useState(false),
     [turns, setTurns] = useState<Turn[]>([]);
+  const [answerMode, setAnswerMode] = useState<"auto" | "quick" | "detailed">("auto");
 
   useEffect(() => {
     alive.current = true;
@@ -56,23 +58,22 @@ export function TutorChat({ initialPrompt = "" }: { initialPrompt?: string }) {
   }
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, mode = answerMode) => {
       const prompt = text.trim();
-      if (busy || prompt.length < 3) return;
+      if (busy || request.current || prompt.length < 3) return;
       const id = crypto.randomUUID();
-      setTurns((previous) => [...previous, { id, prompt, status: "pending" }]);
+      setTurns((previous) => [...previous, { id, prompt, answerMode: mode, status: "pending" }]);
       setDraft("");
       if (inputRef.current) inputRef.current.style.height = "auto";
       setBusy(true);
       const controller = new AbortController();
       request.current = controller;
       try {
-        await openStudySession();
         const response = await fetch(`${API_BASE_URL}/workspace/ask`, {
           method: "POST",
-          credentials: "include",
+          credentials: "omit",
           headers: { "Content-Type": "application/json", "X-LectureLens-Request": "1" },
-          body: JSON.stringify({ prompt }),
+          body: JSON.stringify({ prompt, answerMode: mode }),
           signal: AbortSignal.any([controller.signal, AbortSignal.timeout(360000)]),
         });
         const body = await response.json().catch(() => null);
@@ -80,9 +81,7 @@ export function TutorChat({ initialPrompt = "" }: { initialPrompt?: string }) {
           throw new Error(
             response.status === 429
               ? "Please wait a moment before asking another question."
-              : body?.error?.code === "TUTOR_PENDING"
-                ? "Your previous answer is still being checked. Ask a different question."
-                : "This answer could not be completed. Try another question or come back later.",
+              : (body?.error?.message ?? "Gemini could not be reached. Please try again."),
           );
         const result = notebookSchema.safeParse(body?.data?.notebook);
         if (!result.success)
@@ -90,16 +89,21 @@ export function TutorChat({ initialPrompt = "" }: { initialPrompt?: string }) {
         if (alive.current)
           setTurns((previous) =>
             previous.map((turn) =>
-              turn.id === id ? { ...turn, status: "done", answer: result.data } : turn,
+              turn.id === id
+                ? { ...turn, status: "done", answer: result.data, provider: body.data.provider }
+                : turn,
             ),
           );
-      } catch {
+      } catch (failure) {
         if (!alive.current) return;
         if (controller.signal.aborted) {
           setTurns((previous) => previous.filter((turn) => turn.id !== id));
           return;
         }
-        const message = "This answer could not be completed. Please try again later.";
+        const message =
+          failure instanceof Error
+            ? failure.message
+            : "Gemini could not be reached. Please try again.";
         setTurns((previous) =>
           previous.map((turn) =>
             turn.id === id ? { ...turn, status: "error", error: message } : turn,
@@ -110,12 +114,12 @@ export function TutorChat({ initialPrompt = "" }: { initialPrompt?: string }) {
         if (alive.current) setBusy(false);
       }
     },
-    [busy],
+    [busy, answerMode],
   );
 
   function retry(turn: Turn) {
     setTurns((previous) => previous.filter((item) => item.id !== turn.id));
-    void send(turn.prompt);
+    void send(turn.prompt, turn.answerMode);
   }
 
   function onSubmit(event: FormEvent) {
@@ -228,6 +232,9 @@ export function TutorChat({ initialPrompt = "" }: { initialPrompt?: string }) {
             ) : null}
             {turn.answer ? (
               <div className="rounded-xl border border-rule bg-surface/60 p-3">
+                {turn.provider ? (
+                  <p className="mb-2 text-xs text-ink-muted">Answered by {turn.provider}</p>
+                ) : null}
                 <Notebook notebook={turn.answer} />
               </div>
             ) : null}
@@ -236,6 +243,20 @@ export function TutorChat({ initialPrompt = "" }: { initialPrompt?: string }) {
       </div>
 
       <form onSubmit={onSubmit} className="border-t border-rule bg-surface/70 p-3">
+        <label className="mb-3 block text-xs text-ink-soft">
+          Answer length{" "}
+          <select
+            aria-label="Answer length"
+            className="ml-2 rounded border border-rule bg-paper p-2"
+            value={answerMode}
+            onChange={(e) => setAnswerMode(e.target.value as typeof answerMode)}
+            disabled={busy}
+          >
+            <option value="auto">Auto · quick unless you request detail</option>
+            <option value="quick">Quick · Gemini</option>
+            <option value="detailed">Detailed · FreeGG</option>
+          </select>
+        </label>
         <div className="flex items-end gap-2 rounded-2xl border border-rule-strong bg-paper p-2 shadow-[inset_0_1px_0_rgba(0,0,0,0.03)] focus-within:border-navy/50">
           <textarea
             id="tutor-message"
@@ -261,7 +282,8 @@ export function TutorChat({ initialPrompt = "" }: { initialPrompt?: string }) {
           </Button>
         </div>
         <p className="mt-1.5 px-2 text-[10px] text-ink-muted">
-          Enter to send · Shift + Enter for a new line. Answers are saved privately to your session.
+          Enter to send · Shift + Enter for a new line. Answers stay on this page only; copy
+          anything you want to keep.
         </p>
       </form>
     </section>

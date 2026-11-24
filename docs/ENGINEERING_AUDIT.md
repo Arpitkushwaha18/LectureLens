@@ -1,0 +1,133 @@
+# LectureLens engineering audit
+
+## Optional Gemini backup account — November 24
+
+- Added server-only `GEMINI_BACKUP_API_KEY`, validated with the same bounded key format as the primary. Distinct configured keys use the same fast tutor model/schema, one sequential request per key with 15-second per-call deadlines. With no backup, existing single-key behavior remains. Successful primary answers do not call the backup; Detailed Ask and PDF/video study generation remain unchanged on FreeGG.
+- Explicit primary temporary/quota/auth/model rejection, known-unsent failure or completed invalid output can switch to the backup once. Primary key health uses only an in-memory cooldown respecting Retry-After; no prompt, answer or request record is saved. Unknown transport/timeout outcomes are not replayed automatically. Keys/account identity are never included in browser responses or application logs.
+- **311 backend tests pass**, including success without fallback, independent header-only keys, cooldown, both keys failing, uncertain outcomes, same-key/missing-primary handling, key-format rejection and safe diagnostics. Backend build, lint and formatting checks pass. No live backup key was supplied or tested, no real `.env` edited, and no deployment performed. Verification logs: `.cache/gemini-backup-*.log`.
+
+## Compact cards and real DSTL preview fix — November 24 follow-up
+
+- Reproduced HTTP 503 on the actual public 9 MB DSTL gallery PDF. Storage download succeeded; the preview worker exited with `ERR_WORKER_OUT_OF_MEMORY` at 128 MB. The same first page rendered successfully at 256 MB. Preview rendering now uses **one active 256 MB worker**, retaining the 24-request queue and 15-second deadline; this supersedes the two/128 MB limits below.
+- The real gallery preview endpoint now returns **HTTP 200 image/png**; the in-app browser decoded the 560×449 image and displayed the uploaded PDF cover. No upload, metadata, secret or production configuration was changed.
+- Cards use a 112-pixel thumbnail instead of 192 pixels, compact document/subject/download rows and a one-line description. Failed previews have an explicit cache-busting Retry control rather than remaining permanently failed until navigation.
+- **305 backend tests pass**; frontend build/lint and browser regression pass, including compact card dimensions, scanned-page thumbnails and retrying one simulated preview rejection. Logs: `.cache/compact-gallery-*.log`; actual thumbnail: `.cache/dstl-gallery-preview.png`. No OCR, AI request or deployment was added.
+
+## Notes-only exports, readable website notes and PDF gallery previews — November 24
+
+- Removed the exported “Keep in mind”/transcript diagnostics and generic examination disclaimer. Source checks remain in a collapsed website-only panel outside the notebook. Export rendering omits them; backend HTML sanitization also removes legacy diagnostic containers. Generation instructions keep correction commentary in `limitations` while writing the correct subject concepts directly and prohibiting past/future-exam claims.
+- Website notebooks use clean Inter/serif reading typography, restrained spacing and backgrounds, and horizontally scrollable wide tables. Short notes stay in source order rather than mixed multi-column blocks. The existing handwritten notebook print style is preserved.
+- Gallery cards now display a real first-page PDF image with document label and an open/download link. A public, cross-origin-embeddable endpoint downloads only a known admin-gallery object and rasterizes its first page in a bounded worker (two active/24 queued, 15-second render deadline, 128 MB worker heap, at most 560×1000 pixels). No OCR, AI call, migration or stored thumbnail is added. Failed previews preserve access to the original PDF.
+- Course → Semester → Subject controls enforce the selection order and clear stale child selections. Browser fixtures cover B.Tech semesters 3/4 and BCA semester 3; subjects are scoped to uploaded metadata, not invented curriculum lists. Admin changing course/semester clears its previous subject.
+- Verification: **304 backend tests and 138 frontend tests pass**; browser verifies source checks excluded from a readable six-page PDF, screen typography/mobile overflow, actual decoded PNG gallery preview and cross-course/semester subject resets. Evidence: `.cache/notes-gallery-*.log`, `frontend/.cache/e2e/notes-reading.png`, `frontend/.cache/e2e/gallery-admin-pdfs.png`. Hosted Supabase preview downloads remain unverified; no deployment or live provider request was needed for this UI change.
+
+## Current Ask routing fix and live verification
+
+- Quick/Auto-simple questions use Gemini Flash-Lite with a compact 1024-token JSON answer schema and minimal thinking; Detailed/Auto-detail questions use FreeGG with an 8192-token, 180-second budget. This fixes the unintended 30-second FreeGG tutor timeout. Retry preserves the selected answer mode.
+- Reproduced the reported Ask failure: Gemini returned HTTP 503 `UNAVAILABLE` (high demand). The UI previously swallowed the useful reason. Safe provider-specific errors now reach the page. Quick Ask retries one explicit temporary 503 rejection; quota, Retry-After and uncertain network failures are not replayed.
+- No local OCR: all PDFs are forwarded as original complete PDF bytes. The experimental OCR additions and dependencies made during diagnosis were removed at the user's request. Scanned PDF readability depends on FreeGG.
+- Bounded opt-in local LIVE checks passed: recursion Quick Ask (Gemini, 3.4 seconds), Detailed Ask (FreeGG, 87 seconds), text PDF (15 seconds), image-only PDF with exact Cedar/47/ZETA-913 facts (14 seconds), and real YouTube captions + FreeGG short notes (34 seconds). Logs: `.cache/live-quick-ask.log`, `.cache/live-detailed-ask.log`, `.cache/live-pdf-verification.log`, `.cache/live-video-verification.log`.
+- In-app browser checks of the actual running `/ask` endpoint still encountered intermittent Gemini 503 responses, including manual Retry. This is not claimed as fully reliable/instant live service; no alternate-provider fallback is silently used. Mocked browser regression verifies Quick/Detailed selection, displayed busy reason, retry mode, repeated video acquisition and direct scanned-PDF forwarding.
+- Regression checks: **301 backend tests, 138 frontend tests and browser suite pass**. Both builds, typechecks, lint and format checks pass, as does git whitespace validation; logs are recorded in `.cache/ask-fix-*.log`. No credentials changed, Supabase migration applied, deployment or user-content persistence introduced.
+
+## Superseding product change: admin PDF gallery / no student persistence
+
+The owner subsequently requested **no saved user content or request records**, accepting loss of durable recovery/duplicate-charge protection. This section supersedes the persistence/auth/recovery architecture recorded in the historical repair below.
+
+- Active `/workspace/process` and `/workspace/ask` now use `services/temporary-workspace.service.ts`: request-local extraction/transcripts/generation, no repositories, database, disk cache, session creation or URL reuse. Repeating a URL acquires its transcript again. Provider configuration is still validated and transport/size/time/concurrency limits remain; no guarantee of error-free external services is made.
+- Removed active `/library`, `/youtube` and `/operator` route mounts. Their historical code/migrations/tests and existing data remain untouched for history—not part of the deployed product's request path. Migrations 015–016 are no longer required by this version.
+- Added admin-only PDF upload and public browsing/download through `/gallery`, with `admin-gallery.routes.ts`, `admin-session.ts`, `admin-gallery.ts`, `AdminPage.tsx` and `admin-gallery-api.ts`. Only uploaded PDFs and their title/course/semester/subject/description/date are persisted. Public visitors need no password/account. Uploads require a signed one-hour HTTP-only admin cookie, custom request header, strong server-only password, valid unencrypted PDF ≤20 MB and sharing-rights confirmation.
+- Added manual migration **017** for the dedicated gallery metadata table, catalog RPC and private PDF Storage bucket. No generated content is mixed into this gallery. This schema has no user IDs, URL/caption tables or activity records. Downloads use short-lived signed URLs via public server endpoints. No production migration/data deletion occurred.
+- Removed StudyAccount from the app shell, saved-set recovery/sessionStorage from generation, publishing/resource pages from routing and remote quiz-attempt submission. Quiz/cards remain page-local. Completed outputs survive partial failures; explicit Retry requests only failed outputs. Leaving/reloading discards results. Ask no longer opens a user session.
+- Admin metadata input supports selecting existing course/subject suggestions or adding a new label, and semester selection 1–12. Gallery selection cascades course→semester→subject with pagination and recoverable loading errors. Updated README/environment examples/Render config/deployment prerequisites.
+
+Verification for this change: **296 backend tests and 138 frontend tests pass**; additional tests cover repeated-source generation, no resource IDs/cache reuse, partial failure isolation, admin authorization/request guards, PDF validation, upload-error object cleanup, public downloads, and PostgreSQL migration/grants. Browser E2E **passes** against the new policy: real PDF/spreadsheet parsers, all six outputs, page-local activities, same-URL caption refetching, partial Retry, refresh discard, Ask without login, wrong-password rejection, admin upload and public/mobile filtering. Export produces a readable six-page Chromium PDF. Both builds, typechecks, lint and format checks pass; git whitespace check passes. Supabase table/Storage operations use a test adapter; migration/grants use isolated PGlite. No live Supabase/provider evidence is claimed. Logs: `.cache/temporary-*.log`; screenshot: `frontend/.cache/e2e/gallery-admin-pdfs.png`.
+
+Limits: no durable job recovery, cross-request caching or duplicate-charge fence; retries may incur additional charges. Existing historical records are not erased. Hosting/provider logging and provider retention policies are separate from application persistence; source material necessarily reaches the selected provider. Hosted Supabase Storage/admin cookies, migration application and live providers remain unverified. See `docs/DEPLOYMENT.md` for required configuration.
+
+## Historical repair record (before the superseding change)
+
+## Scope and safety
+
+Audit of the actual local workspace, November 2026. Existing uncommitted provider/PDF changes and deleted OCR sources are preserved. No credentials are printed, no production requests/migrations/deployments are executed. Historical migrations are immutable.
+
+## Baseline
+
+- Backend: 289 passing tests / 14 suites; TypeScript build and lint pass.
+- Frontend: 138 passing tests / 10 suites; TypeScript/build and lint pass. Vite reports a large-chunk warning.
+- Shared Zod contracts are rebuilt by both applications.
+- Browser suite references deleted OCR fixtures: it is not covered by the passing unit suites.
+
+## Architecture inspected
+
+React 19/Vite SPA → Express 5 modular monolith → controllers/services → repositories/providers. Shared Zod contracts define notebooks, six output types and streamed events. TranscriptFetch has bounded transport, automatic captions, persisted reservation/idempotency and unknown-outcome fences. FreeGG and Gemini are separate transports; tutor uses Gemini independently. Supabase PostgreSQL is the production source of truth for captions, private/published resources and new generation claims/checkpoints. SQLite remains the local generation/extraction cache and legacy-fence store; PGlite implements development library/RPC behavior using the same SQL. Authentication is Supabase email/password with HTTP-only access/refresh cookies, or a local device session. Notebook export uses sanitized HTML in network-isolated Chromium.
+
+## Verified findings and repair tracking
+
+| Finding                                                                            | Risk / repair                                                                                    |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Gallery/resource routes removed; retained library never receives workspace outputs | Restore rights-gated publishing, public reads and owner-only writes using existing resources     |
+| Production cookies use SameSite=Lax across Vercel/Render                           | Configurable secure SameSite=None, bounded session lifetime                                      |
+| Supabase access-token cookie outlives token and no refresh                         | Server-side refresh flow using HTTP-only refresh cookie                                          |
+| Invalid local token lookup creates an orphan guest session                         | Read-only session lookup                                                                         |
+| PDF export lacks study-request guard                                               | Require custom request header, bounded concurrency                                               |
+| Proxy trust unconfigured behind Render                                             | Explicit bounded proxy hops                                                                      |
+| Rate-limit default responses are plain text                                        | Shared JSON handlers                                                                             |
+| Private generation fences/results are SQLite-only                                  | Durable PostgreSQL lifecycle, preserving legacy fences                                           |
+| Successful outputs followed by a failure throw                                     | Explicit partially_completed outcome                                                             |
+| Notebook-to-resource conversion occurs only during render                          | Validate output-specific conversion before persistence                                           |
+| Workspace negative-caption cache has no expiry                                     | One-hour SQLite TTL added; hosted extraction terminal-state expiry remains a separate limitation |
+| Library scope=mine includes all published content                                  | Additive SQL correction                                                                          |
+| Quiz submission is a fake async save; attempts lost on refresh                     | Persist scores server-side for saved resources                                                   |
+| Resource tabs remount activity state                                               | Preserve activity instances                                                                      |
+| Error messages and stages hidden by generic UI copy                                | Display safe server errors and real stages                                                       |
+| Duplicate transcript metadata assignments                                          | Remove exact duplication                                                                         |
+| No Vercel/Render deployment manifests                                              | Add explicit builds, SPA fallback, health and storage guidance                                   |
+| README describes historical removed features                                       | Refresh architecture and distinguish historical evidence                                         |
+
+## External verification limits
+
+Local tests do not establish production readiness. Fresh live TranscriptFetch captions, FreeGG PDF readability, hosted Supabase migrations/RLS/auth, cross-site browser cookies and Vercel/Render deployments require separately approved verification. No paid-provider fallback is silently introduced. Provider-selected captions are supported, not a claim to enumerate all YouTube caption tracks.
+
+## Implemented outcome and verification
+
+- Restored `/gallery`, `/gallery?scope=mine` and `/resources/:id`; public reads, owner-only publication, source-rights confirmations, pagination, topic/output search and private scored quiz attempts use the existing library tables/RLS.
+- Successful generation outputs are saved independently before announcing ready. Partial failures now produce an explicit `partially_completed` terminal result and keep completed work usable. Unknown paid outcomes remain fenced.
+- Added a PostgreSQL generation repository and transactional RPC for production private activity/document/tutor claims, evidence, validated checkpoints, late-success reconciliation and bounded retries. Historical hosted/SQLite fences are retained; no automatic reconciliation of lost legacy state is claimed.
+- Separated library HTTP controllers/auth services; tightened session lifetime, refresh coalescing, local token lookup, request guards, structured throttles and proxy configuration. PDF export retains its existing single-render concurrency guard, sanitization, network isolation and timeout.
+- Kept flashcard/quiz instances across tabs, reset them when content changes, added server attempt review, and added explicit refresh reopening from owner-scoped resource IDs (not source text). URL-only receipts are renewed before retry/check to tolerate backend restart/expiry.
+- Lazy-loaded pages. Initial frontend JS fell from approximately 558 kB after gallery additions to **274.48 kB** (85.61 kB gzip); the final build has no >500 kB chunk warning. This is a build-size result, not a Lighthouse/latency claim.
+
+| Check                          | Actual result                                                                                                                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend unit/integration       | **292 passed, 0 failed**, 14 suites                                                                                                                                                               |
+| Frontend unit/contracts        | **138 passed, 0 failed**, 10 suites                                                                                                                                                               |
+| Browser E2E                    | Passed: real HTTP/PGlite, uploads/parsers, six outputs, tab activity state, quiz persistence, gallery publishing/public reads, safe Retry/recovery, mobile overflow and zero uncaught page errors |
+| PDF E2E                        | Real Chromium A4 export, six-page readable notebook fixture, text/page-boundary checks and multi-output export                                                                                    |
+| Typecheck, lint, format checks | Backend and frontend pass                                                                                                                                                                         |
+| Production builds              | Backend and frontend pass locally; not hosted builds/deployments                                                                                                                                  |
+| Git whitespace check           | Pass                                                                                                                                                                                              |
+| Hosted Supabase/providers      | Not executed; mocked Supabase auth, TranscriptFetch and AI transports are not live-provider evidence                                                                                              |
+
+Logs: `.cache/audit-*-final.log`, `.cache/audit-browser.log`; visual/export artifacts: `frontend/.cache/e2e/`. Browser assertions were updated for the deliberate restored-gallery, direct-PDF and partial-success contracts. Obsolete OCR expectations were replaced with direct scanned-PDF payload/protected-PDF rejection checks, not skipped tests. Provider-sensitive error tests continue to reject synthetic private detail leakage.
+
+## File and database inventory
+
+New backend files: `src/controllers/library.controller.ts`, `src/services/auth.service.ts`, `src/repositories/generation-store.ts`, `src/middleware/rate-limit.ts`; regression tests: `auth-session.test.mjs`, `durable-generation.test.mjs`, `library-http.test.mjs`.
+
+New frontend files: `src/pages/GalleryPage.tsx`, `src/pages/ResourcePage.tsx`, `src/features/library/resources-api.ts`. Existing router/navigation, result rendering, account/session helper, activities, progress and workspace recovery were updated. Existing backend services/repositories/routes and shared resource/workspace contracts were updated, not replaced with a new framework.
+
+New database files: migrations **015** (`20261123001500_library_integrity.sql`: list-scope function correction and indexes) and **016** (`20261123001600_durable_private_generation.sql`: private generation job table and service-role-only RPC). These were applied only to isolated test PostgreSQL stores. Historical migrations 001–014 and production data were not rewritten. Rollback guidance is in `docs/DEPLOYMENT.md`.
+
+New deployment/docs files: `vercel.json`, `render.yaml`, `docs/DEPLOYMENT.md`, this audit. README and `.env.example` were updated; `.env` was not edited. Format-only cleanup also touched existing verification scripts and `frontend/tests/live-workflow.mjs`. The local paid-caption verification script was corrected to acquire through the fenced provider explicitly, rather than assuming URL validation fetched captions; this consent-gated script was **not run**. The historical OCR profiler now imports the retained visual fixtures; it is not evidence of current OCR capability.
+
+No additional engineering source/test files were deleted. OCR deletions and provider/PDF dependency edits already present at task start were preserved; the mini-project PDF and other pre-existing untracked files were not removed. No commit, push, deployment, production migration, Supabase reset or paid request was performed.
+
+## Remaining limitations / release gates
+
+1. Review/apply missing hosted migrations and validate RLS/RPC grants, real signup/refresh/logout, proxy topology and cross-site cookies. SameSite=None does not bypass browsers' third-party-cookie blocking; prefer a same-site domain arrangement.
+2. Unknown new PostgreSQL paid jobs fail closed, but a dedicated operator reconciliation UI/CLI is not yet supplied. Keep evidence and use an approved database/operator procedure; never delete a fence to retry. Legacy SQLite state must be retained/reconciled before an ephemeral-host cutover.
+3. Hosted transcript extraction's terminal unavailable outcomes are not automatically expired by the SQLite TTL change. Caption enumeration, audio fallback and live-provider readability/access remain unverified/unsupported as described in provider docs.
+4. Refresh reopens saved outputs explicitly. It does not restore raw upload bytes, unfinished quiz drafts or automatically resume paid generation. Re-upload documents to request additional material; completed server attempts remain reviewable.
+5. Public visitors can read every published resource; saving a quiz attempt requires a study session/account. Flashcard marks are tab-local. Publishing is supported, but editing/unpublishing remain absent; removal stays operator-only.
+6. The workspace orchestrator remains large and sequential. Further decomposition, cross-instance global rate limits, load/soak tests, browser performance profiling, memory profiling and broader accessibility testing have not been completed. Local tests/builds are not a blanket production-readiness certification.

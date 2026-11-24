@@ -1,21 +1,26 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { notebookSchema } from "@lecturelens/contracts";
-import { getConfiguredStudyGemini } from "../modules/ai/gemini-study.js";
+import { getConfiguredTutorGemini } from "../modules/ai/gemini-study.js";
 import { workspaceCache } from "../repositories/workspace-cache.js";
 import { withGenerationEvidence } from "../modules/ai/generation-evidence.js";
 import { NotesGenerationError } from "../modules/ai/gemini-notes.js";
 import { studentGenerationFailure } from "../modules/ai/generation-lifecycle.js";
 import { AppError } from "../lib/errors.js";
 import { detectSourceLanguage } from "../modules/extraction/language.js";
+import { env } from "../config/env.js";
+import { PostgresGenerationStore, type GenerationStore } from "../repositories/generation-store.js";
 export const tutorRequestSchema = z.strictObject({ prompt: z.string().trim().min(3).max(4000) });
 export function createTutorService(
-  deps = { cache: workspaceCache, gemini: getConfiguredStudyGemini },
+  deps = { cache: workspaceCache, gemini: getConfiguredTutorGemini },
+  generationStore?: GenerationStore,
 ) {
   return async (input: unknown, ownerId: string) => {
     const { prompt } = tutorRequestSchema.parse(input);
     const configured = deps.gemini(true),
       cache = deps.cache();
+    const jobs: GenerationStore =
+      generationStore ?? (env.LIBRARY_STORE === "supabase" ? new PostgresGenerationStore() : cache);
     const legacyKey = createHash("sha256")
       .update(
         JSON.stringify({
@@ -42,15 +47,33 @@ export function createTutorService(
             .digest("hex")
         : legacyKey;
     const key = createHash("sha256").update(`${legacyKey}:english-v2`).digest("hex");
-    const saved = cache.material(key);
+    const saved = (await jobs.material(key)) ?? cache.material(key);
     if (saved) return { notebook: saved, cached: true };
-    if (!cache.checkState(key, legacyKey, previousOperation).safe)
+    const historicalOperations = [env.GEMINI_MODEL, `freegg:${env.FREEGG_MODEL}`]
+      .filter((model): model is string => Boolean(model))
+      .map((model) =>
+        createHash("sha256")
+          .update(
+            JSON.stringify({ ownerId, prompt, model, version: "urtutor-question-v1", schema: 2 }),
+          )
+          .digest("hex"),
+      );
+    if (
+      !cache.checkState(key, legacyKey, previousOperation).safe ||
+      historicalOperations.some((operation) => !cache.checkState(key, legacyKey, operation).safe)
+    )
       throw new AppError("Your answer is not ready yet.", {
         code: "TUTOR_PENDING",
         statusCode: 409,
       });
     deps.gemini();
-    const token = cache.claim(key, legacyKey, {
+    const operation =
+      jobs === cache
+        ? legacyKey
+        : createHash("sha256")
+            .update(JSON.stringify({ ownerId, prompt, task: "tutor" }))
+            .digest("hex");
+    const token = await jobs.claim(key, operation, {
       model: configured.model,
       sourceId: `private-question:${ownerId}`,
       legacyOperation: previousOperation,
@@ -64,7 +87,7 @@ export function createTutorService(
     try {
       const notebook = notebookSchema.parse(
         await withGenerationEvidence(
-          (e) => cache.evidence(key, token, e),
+          (e) => jobs.evidence(key, token, e),
           () =>
             configured.generate(prompt, "detailed_notes", {
               task: "tutor",
@@ -79,8 +102,8 @@ export function createTutorService(
             }),
         ),
       );
-      cache.checkpoint(key, token, notebook);
-      cache.finish(key, token, notebook);
+      await jobs.checkpoint(key, token, notebook);
+      await jobs.finish(key, token, notebook);
       return { notebook, cached: false };
     } catch (error) {
       const failure =
@@ -90,7 +113,7 @@ export function createTutorService(
               "GEMINI_UNCERTAIN",
               "Your answer could not be completed safely.",
             );
-      cache.fail(key, token, failure.code, failure.retryable, failure.retryAfterSeconds);
+      await jobs.fail(key, token, failure.code, failure.retryable, failure.retryAfterSeconds);
       const safe = studentGenerationFailure(failure.code);
       throw new AppError(
         safe.retryable
@@ -101,4 +124,5 @@ export function createTutorService(
     }
   };
 }
-export const askTutor = createTutorService();
+// The old durable factory is historical, not the current public request path.
+export { askTemporaryTutor as askTutor } from "./temporary-workspace.service.js";

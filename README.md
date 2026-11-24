@@ -11,18 +11,19 @@ they help, editorial serif headings and restrained ink accents. Not a generic da
 
 ## Current status
 
-**Local source → real Gemini → saved notebook → PDF workflow verified (22 November 2026).**
+Engineering repair is documented in [`docs/ENGINEERING_AUDIT.md`](docs/ENGINEERING_AUDIT.md).
+Historical real-Gemini/PDF evidence below dates to 22 November; the current repair uses mocked providers and local PostgreSQL tests, not fresh live verification.
 
-| Area                                              | State                                                                      |
-| ------------------------------------------------- | -------------------------------------------------------------------------- |
-| Repository, tooling, lint/format                  | Done                                                                       |
-| Frontend app shell and navigation                 | Done                                                                       |
-| Notebook design system (tokens + UI primitives)   | Done                                                                       |
-| Backend scaffold, health endpoint, error contract | Done                                                                       |
-| Persistence                                       | Supabase YouTube detailed/short notes; owner-scoped private SQLite outputs |
-| Automatic YouTube URL validation                   | URL format only; transcript fetching begins after Continue                |
-| Gemini generation                                 | All six outputs verified with real 3.5 Flash                               |
-| Notebook PDF download                             | Real 15-page A4 export verified                                            |
+| Area                                              | State                                                                             |
+| ------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Repository, tooling, lint/format                  | Done                                                                              |
+| Frontend app shell and navigation                 | Done                                                                              |
+| Notebook design system (tokens + UI primitives)   | Done                                                                              |
+| Backend scaffold, health endpoint, error contract | Done                                                                              |
+| Persistence                                       | Only admin-uploaded gallery PDFs and course/semester/subject metadata in Supabase |
+| Automatic YouTube URL validation                  | URL format only; transcript fetching begins after Continue                        |
+| Gemini generation                                 | All six outputs verified with real 3.5 Flash                                      |
+| Notebook PDF download                             | Real 15-page A4 export verified                                                   |
 
 Nothing in this repository pretends to work: sections that are not built yet say so on the page.
 
@@ -36,27 +37,33 @@ See [`contracts/README.md`](contracts/README.md) for URL policy, versioning and 
 See [`docs/FREEGG_SETUP.md`](docs/FREEGG_SETUP.md). No key belongs in the frontend.
 
 **Current workspace:** `/assistant` uploads PDF/XLSX/XLS/CSV to the local backend (20 MiB/file,
-100,000 extracted characters), extracts embedded text/cells and scanned-PDF/XLSX-image OCR,
+100,000 extracted spreadsheet characters), reads spreadsheet cells and sends complete PDFs directly to FreeGG,
 then generates detailed notes, short notes, flashcards, quizzes, mind maps and sample
 question papers. All generated material and doubt answers are in English. Transcript language metadata
 is preserved, while provider lectures support up to 500,000 characters without truncation;
-PDF/XLSX OCR retains English/Hindi support. Per-output progress, partial-extraction consent,
-durable output reuse, safe Retry and uncertainty fences are retained. Completed outputs open
+Local OCR/Tesseract is removed. Text and image-only PDF fixtures passed live FreeGG verification; see
+[`docs/AI_PROVIDER_ROUTING.md`](docs/AI_PROVIDER_ROUTING.md). Per-output progress, partial-extraction consent,
+page-local results and explicit Retry are supported. Completed outputs open
 individually while the rest continue. Backend completion events track real stages internally;
 the UI uses a subtle loading circle without percentages. Videos are capped at
 five hours. Flashcards and quizzes are selectable in section 2; separate navigation sections stay
-hidden. Gallery, publishing and public
-resource routes are removed.
+hidden. `/gallery` shows only admin-uploaded PDF notes by course, semester and subject.
+`/admin` is password protected; PDFs are freely readable/downloadable without a visitor account.
+Configure `GALLERY_ADMIN_PASSWORD` server-side and manually apply migration 017; see deployment guidance.
 The inline doubt search bar opens a dedicated `/ask` page with a GPT-style answer thread and composer.
+Quick Ask uses Gemini independently of study generation: set `GEMINI_API_KEY` and
+`GEMINI_TUTOR_MODEL=gemini-3.5-flash-lite` (low-latency Flash-Lite with minimal thinking).
+Optional `GEMINI_BACKUP_API_KEY` enables bounded, sequential Quick Ask failover to a second
+authorized account. Add it only to backend/server environment variables and restart the backend.
+Detailed Ask uses FreeGG. Auto defaults to Quick unless the question explicitly asks for detail;
+the answer-length selector can override this. Provider outages can still delay or reject requests.
 
-**Final YouTube workflow:** Detailed Notes and Short Notes alone are reused across learners
-through protected Supabase RPCs, with no creator identity or public feed. Identity includes
-canonical video ID, caption hash, actual language, output, model, prompt and schema versions.
-Claims are transactional and preserve unknown paid-job fences. PDFs/spreadsheets and other
-activities use owner-scoped private storage; activity answers stay in the current tab.
-Local device sessions use `LIBRARY_STORE=local_postgres`; hosted authenticated sessions use
-`LIBRARY_STORE=supabase`. The historical library tables remain intact but are no longer exposed.
-See [`docs/FINAL_YOUTUBE_WORKFLOW.md`](docs/FINAL_YOUTUBE_WORKFLOW.md). No hosted migrations applied.
+**Current no-user-storage workflow:** Every request fetches/parses its source anew—even the same
+YouTube URL. No captions, URL history, student notes, prompts, quiz attempts or request records
+are saved to the database or disk by the active study/Ask routes. Results stay in page memory;
+download them before refresh/navigation. Partial failures keep completed materials usable and
+Retry requests only failed outputs. No durable recovery or duplicate-charge protection is claimed.
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). No hosted migrations applied.
 
 **B2 — Supabase foundation:** version-controlled SQL provides shared YouTube sources/transcripts,
 configuration-aware reusable outputs, atomic job reservation and private-by-default document
@@ -64,15 +71,14 @@ visibility. This historical foundation has no student accounts; the new library 
 authenticated ownership and read-only RLS without altering its historical records.
 See [`docs/PHASE_B2.md`](docs/PHASE_B2.md) for the correction.
 
-**YouTube:** saved captions are reused; TranscriptFetch acquires captions on misses when configured
-with the hosted extraction setup. The main workflow uses Supabase notes storage plus
-checks against older hosted/SQLite paid-job fences. The real cached-Hindi-caption path
-was verified through rendered notes and a four-page PDF; fresh live caption acquisition was not.
-Hosted workflow migrations 005–012 remain local/unapplied; the legacy hosted detailed-notes
-endpoint still fails closed until approved setup. Unknown paid outcomes are not resent.
+**YouTube:** TranscriptFetch acquires captions after Continue; no Supabase lookup or saving.
+Historical foundation/recovery documents and tests below describe an earlier architecture;
+its library/YouTube/operator routers are no longer exposed. Existing production records remain
+untouched. Fresh live caption acquisition remains unverified.
 
-**Setup and evidence:** see [`docs/GENERATION_RECOVERY_OCR.md`](docs/GENERATION_RECOVERY_OCR.md)
-for current configuration, OCR/Chromium prerequisites, actual live evidence, tests and limitations.
+**Current provider/PDF setup:** see [`docs/AI_PROVIDER_ROUTING.md`](docs/AI_PROVIDER_ROUTING.md).
+[`docs/GENERATION_RECOVERY_OCR.md`](docs/GENERATION_RECOVERY_OCR.md) records historical
+OCR configuration, Chromium prerequisites, live evidence, tests and limitations; local OCR is now removed.
 Local `GEMINI_MODEL=gemini-3.5-flash` was verified. A successful model-list/metadata GET does not
 prove generation access: this account rejected 2.5 Flash with HTTP 404. No automatic paid model
 fallback is used. Earlier [`docs/PHASE_B3.md`](docs/PHASE_B3.md) describes the historical MVP.
@@ -81,16 +87,15 @@ fallback is used. Earlier [`docs/PHASE_B3.md`](docs/PHASE_B3.md) describes the h
 
 ## Stack
 
-| Layer                  | Choice                                                             |
-| ---------------------- | ------------------------------------------------------------------ |
-| Frontend               | React 19, Vite 8, TypeScript, Tailwind CSS v4                      |
-| Routing / server state | React Router 7, TanStack Query 5                                   |
-| Backend                | Node.js, Express 5, TypeScript                                     |
-| Validation             | Zod                                                                |
-| Logging                | Pino (+ pino-pretty in development)                                |
-| Database               | Supabase YouTube notes/captions + private SQLite + device sessions |
-| File storage (planned) | ImageKit                                                           |
-| AI                     | Official `@google/genai`, backend only                             |
+| Layer                  | Choice                                                                |
+| ---------------------- | --------------------------------------------------------------------- |
+| Frontend               | React 19, Vite 8, TypeScript, Tailwind CSS v4                         |
+| Routing / server state | React Router 7, TanStack Query 5                                      |
+| Backend                | Node.js, Express 5, TypeScript                                        |
+| Validation             | Zod                                                                   |
+| Logging                | Pino (+ pino-pretty in development)                                   |
+| Database               | Supabase PostgreSQL + Storage for admin PDF gallery only              |
+| AI                     | FreeGG study generation/PDF payloads; Gemini Ask doubts; backend only |
 
 ---
 
@@ -165,37 +170,45 @@ Open <http://localhost:5173>. The status chip in the top bar shows whether the A
 
 ---
 
+## Notes display and gallery previews
+
+Website notes use clean reading typography; exported notes retain the notebook PDF style.
+Source checks are collapsed on the website and excluded from PDFs. Gallery cards show a cropped
+first-page preview of admin-uploaded PDFs, with **Course → Semester → Subject** filters.
+Previews are rendered on demand in bounded workers without OCR, AI calls or saved thumbnail objects.
+Subjects come from uploaded metadata for that course/semester, not a universal B.Tech syllabus.
+
 ## Environment variables
 
 ### `frontend/.env.local`
 
-| Variable                        | Purpose                                                       |
-| ------------------------------- | ------------------------------------------------------------- |
-| `VITE_API_BASE_URL`             | Backend base URL including `/api/v1`                          |
-| `VITE_SUPABASE_URL`             | Public project URL (MVP does not query Supabase from browser) |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Public `sb_publishable_...` key                               |
+| Variable            | Purpose                              |
+| ------------------- | ------------------------------------ |
+| `VITE_API_BASE_URL` | Backend base URL including `/api/v1` |
 
 Every `VITE_*` variable is compiled into the browser bundle and is **public**. Never put a secret
 there.
 
 ### `backend/.env`
 
-| Variable                  | Purpose                                                   |
-| ------------------------- | --------------------------------------------------------- |
-| `NODE_ENV`                | `development` / `test` / `production`                     |
-| `PORT`                    | HTTP port (default `4000`)                                |
-| `LOG_LEVEL`               | Pino log level                                            |
-| `SERVICE_VERSION`         | Reported by the health endpoint                           |
-| `FRONTEND_ORIGIN`         | Comma-separated CORS allowlist                            |
-| `SUPABASE_URL`            | Supabase project URL (same project as frontend)           |
-| `SUPABASE_SECRET_KEY`     | Server-only `sb_secret_...` key; never expose to frontend |
-| `GEMINI_API_KEY`          | Backend-only Gemini API key                               |
-| `GEMINI_MODEL`            | Explicit available model ID; run `npm run gemini:models`  |
-| `WORKSPACE_YOUTUBE_STORE` | `local` (default SQLite) or approved `supabase` lifecycle |
+| Variable                 | Purpose                                                       |
+| ------------------------ | ------------------------------------------------------------- |
+| `NODE_ENV`               | `development` / `test` / `production`                         |
+| `PORT`                   | HTTP port (default `4000`)                                    |
+| `LOG_LEVEL`              | Pino log level                                                |
+| `SERVICE_VERSION`        | Reported by the health endpoint                               |
+| `FRONTEND_ORIGIN`        | Comma-separated CORS allowlist                                |
+| `SUPABASE_URL`           | Server-only gallery Supabase project URL                      |
+| `SUPABASE_SECRET_KEY`    | Server-only `sb_secret_...` key; never expose to frontend     |
+| `GEMINI_API_KEY`         | Backend-only Gemini API key                                   |
+| `GEMINI_BACKUP_API_KEY`  | Optional backend-only Gemini backup account key for Quick Ask |
+| `GEMINI_MODEL`           | Explicit available model ID; run `npm run gemini:models`      |
+| `GALLERY_ADMIN_PASSWORD` | Strong unique 16–256 character password for `/admin` only     |
 
 `backend/src/config/env.ts` validates these at boot and exits on anything invalid. Leave both
-Supabase variables blank for health/preview-only mode, or configure both. The frontend validates
-its public configuration before dev/build. ImageKit and AI remain unintegrated future phases.
+Supabase variables blank during local study-only development, or configure both for the gallery.
+Generation does not depend on gallery database availability. Production configuration uses Supabase
+for admin-uploaded gallery notes only. See `.env.example` for provider and deployment settings.
 
 ---
 

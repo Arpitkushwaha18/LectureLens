@@ -16,6 +16,7 @@ import {
   quizCountSchema,
   studyPreferencesSchema,
   type PublicSource,
+  notebookToResource,
 } from "@lecturelens/contracts";
 import {
   extractDocument,
@@ -46,6 +47,7 @@ import {
 } from "../repositories/youtube-notebooks.js";
 import { videoVerifier } from "./video-verification.js";
 import { studyPreferenceIdentity, resolveOutputLanguage } from "../modules/ai/study-preferences.js";
+import { PostgresGenerationStore, type GenerationStore } from "../repositories/generation-store.js";
 
 export const workspaceRequestSchema = z.strictObject({
   sourceType: z.enum(["youtube", "pdf", "spreadsheet"]),
@@ -69,6 +71,7 @@ type Dependencies = {
   youtubeNotes: typeof generateDetailedNotes;
   notesStore?: YouTubeNotebookStore;
   verify?: typeof videoVerifier.assert;
+  jobs?: GenerationStore;
 };
 export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
   const deps: Dependencies = {
@@ -90,9 +93,10 @@ export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
     file: { buffer: Buffer; originalname: string } | undefined,
     emit: (event: WorkspaceEvent) => void,
     signal?: AbortSignal,
-    context?: { ownerId: string; library: StudyLibrary },
+    context?: { ownerId: string; library?: StudyLibrary },
   ): Promise<WorkspaceResult> => {
     const parsedRequest = workspaceRequestSchema.parse(input);
+    if (context?.library) await context.library.ready();
     const request = {
       ...parsedRequest,
       preferences: { ...parsedRequest.preferences, outputLanguage: "en" as const },
@@ -124,6 +128,9 @@ export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
       });
     stage("extracting", canonical ? "Fetching the lecture transcript" : "Reading your document");
     const cache = deps.cache();
+    const jobs: GenerationStore =
+      deps.jobs ??
+      (context?.library?.storage === "supabase" ? new PostgresGenerationStore() : cache);
     for (const outputType of request.outputTypes)
       emit({
         event: "stage",
@@ -138,7 +145,7 @@ export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
     let hostedTranscript: { sourceId: string; transcriptId: string } | undefined;
     const fallback = async (_message: string): Promise<WorkspaceResult> => {
       throw new AppError(
-        "This lecture has no usable transcript. Try another lecture or paste your notes.",
+        "This lecture has no usable transcript. Try another lecture or upload a PDF or spreadsheet.",
         { code: "TRANSCRIPT_UNAVAILABLE", statusCode: 422 },
       );
     };
@@ -238,7 +245,7 @@ export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
         file!.originalname,
         request.sourceType as "pdf" | "spreadsheet",
       );
-      const identity = `${context?.ownerId ?? "test"}:${request.sourceType}:parser-ocr-v3:${createHash("sha256").update(file!.buffer).digest("hex")}`;
+      const identity = `${context?.ownerId ?? "test"}:${request.sourceType}:direct-pdf-v4:${createHash("sha256").update(file!.buffer).digest("hex")}`;
       const existing = cache.extraction(identity);
       source =
         existing && (!existing.partial || request.allowPartial)
@@ -291,17 +298,61 @@ export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
     const materials: Extract<WorkspaceResult, { status: "ready" }>["materials"] = [];
     progress(40, "Checking your selected materials");
     const failures: NotesGenerationError[] = [];
+    const outputFailures: NonNullable<Extract<WorkspaceResult, { status: "ready" }>["failures"]> =
+      [];
+    const recordFailure = (outputType: GenerationOutputTypeV2, failure: NotesGenerationError) => {
+      failures.push(failure);
+      const safe = studentGenerationFailure(failure.code);
+      outputFailures.push({
+        outputType,
+        code: failure.code,
+        message: safe.message,
+        retryable: safe.retryable,
+        ...(safe.retryable && failure.retryable
+          ? { retryAfterSeconds: Math.max(1, failure.retryAfterSeconds) }
+          : {}),
+      });
+    };
     const complete = async (
       outputType: GenerationOutputTypeV2,
       notebook: NotebookData,
       cached: boolean,
-      _key: string,
+      key: string,
     ) => {
+      const resource = context?.library
+        ? await context.library.save(
+            context.ownerId,
+            key,
+            {
+              outputType,
+              description:
+                `AI-generated ${outputType.replaceAll("_", " ")} from ${source.name}`.slice(
+                  0,
+                  1000,
+                ),
+              subject: request.subject ?? null,
+              language: outputLanguage,
+              sourceLanguage: source.language,
+              sourceType: source.kind,
+              preview: notebook.title.slice(0, 400),
+            },
+            notebookToResource(notebook, outputType),
+            {
+              sourceIdentity: canonical?.videoId ?? `private:${context.ownerId}:${key}`,
+              sourceHash: createHash("sha256")
+                .update(canonical ? source.text : file!.buffer)
+                .digest("hex"),
+              model: deps.gemini(true).model,
+              promptVersion: promptIdentity,
+            },
+          )
+        : null;
       const material = {
         outputType,
         cached,
         notebook,
         language: outputLanguage,
+        ...(resource ? { resourceId: resource.id, visibility: resource.visibility } : {}),
       };
       materials.push(material);
       emit({ event: "material", material });
@@ -441,7 +492,7 @@ export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
             outputStatus: definitiveFailure(failure.code) ? "failed" : "blocked",
             message: studentGenerationFailure(failure.code).message,
           });
-          failures.push(failure);
+          recordFailure(outputType, failure);
           continue;
         }
         emit({
@@ -515,6 +566,7 @@ export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
           JSON.stringify({
             source: source.kind,
             contentHash,
+            ...(source.kind === "pdf" ? { inputMode: "direct-pdf-v1" } : {}),
             ...(canonical ? { sourceId: canonical.videoId } : {}),
             text: source.text,
             outputType,
@@ -548,7 +600,7 @@ export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
         )
         .digest("hex");
       // Historical paid fences remain checked, but incompatible legacy outputs are not reused.
-      const saved = cache.material(key);
+      const saved = (await jobs.material(key)) ?? cache.material(key);
       if (saved) {
         await complete(outputType, saved, true, key);
         continue;
@@ -560,24 +612,30 @@ export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
           outputType,
         );
       if (request.checkOnly) {
-        const state = cache.checkState(key, operation, legacyOperation);
-        if (!state.safe)
+        const state = await jobs.checkState(key, operation, legacyOperation);
+        if (!state.safe && !materials.length)
           return {
             status: "pending",
             message: FENCED_JOB_MESSAGE,
             retrySafe: false,
             retryAfterSeconds: 3,
           };
-        throw new NotesGenerationError(
-          state.code,
-          "Generation failed. You can try again.",
-          state.delay > 0 || state.code === "GENERATION_NOT_SENT",
-          503,
-          Math.max(1, state.delay),
+        recordFailure(
+          outputType,
+          new NotesGenerationError(
+            state.safe ? state.code : "JOB_RECOVERY_REQUIRED",
+            state.safe ? "Generation failed. You can try again." : FENCED_JOB_MESSAGE,
+            state.safe && (state.delay > 0 || state.code === "GENERATION_NOT_SENT"),
+            503,
+            Math.max(1, state.delay),
+          ),
         );
+        continue;
       }
       deps.gemini();
-      const token = cache.claim(key, operation, {
+      if (jobs !== cache && !cache.checkState(key, operation, legacyOperation).safe)
+        throw new AppError(FENCED_JOB_MESSAGE, { code: "JOB_RECOVERY_REQUIRED", statusCode: 503 });
+      const token = await jobs.claim(key, operation, {
         model: configured.model,
         sourceId: `${source.kind}:${contentHash}`,
         legacyOperation,
@@ -586,19 +644,33 @@ export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
           : generationBudget(source.text.length, true).timeoutMs + 60000,
       });
       if (!token) {
-        const completed = cache.material(key);
+        const completed = await jobs.material(key);
         if (completed) {
           await complete(outputType, completed, true, key);
           continue;
         }
-        return {
-          status: "pending",
-          retrySafe: cache.retrySafe(key),
-          message: cache.retrySafe(key)
-            ? "A safe retry is waiting for its cooldown. No new request was started."
-            : FENCED_JOB_MESSAGE,
-          retryAfterSeconds: cache.retryAfter(key),
-        };
+        const safe = await jobs.retrySafe(key),
+          delay = await jobs.retryAfter(key);
+        if (!materials.length)
+          return {
+            status: "pending",
+            retrySafe: safe,
+            message: safe
+              ? "A safe retry is waiting for its cooldown. No new request was started."
+              : FENCED_JOB_MESSAGE,
+            retryAfterSeconds: delay,
+          };
+        recordFailure(
+          outputType,
+          new NotesGenerationError(
+            safe ? "GEMINI_QUOTA" : "JOB_RECOVERY_REQUIRED",
+            FENCED_JOB_MESSAGE,
+            safe,
+            503,
+            delay,
+          ),
+        );
+        continue;
       }
       stage(
         "generating",
@@ -621,23 +693,32 @@ export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
       let notebook;
       try {
         if (signal?.aborted) {
-          cache.cancelBeforeSend(key, token);
+          // The catch below releases this not-dispatched lease once. Cancelling
+          // it here as well would discard the token before fail() can record it.
           throw new NotesGenerationError(
             "GENERATION_CANCELLED_BEFORE_SEND",
             "Generation failed. You can try again.",
           );
         }
         notebook = await withGenerationEvidence(
-          (event) => cache.evidence(key, token, event),
+          (event) => jobs.evidence(key, token, event),
           () =>
             configured.generate(source.text, outputType, {
               flashcardCount: request.flashcardCount,
               quizCount: request.quizCount,
               preferences: request.preferences,
               sourceLanguage: source.language,
+              ...(source.kind === "pdf"
+                ? {
+                    pdf: {
+                      data: file!.buffer.toString("base64"),
+                      name: safeDocumentName(file!.originalname),
+                    },
+                  }
+                : {}),
             }),
         );
-        cache.checkpoint(key, token, notebook);
+        await jobs.checkpoint(key, token, notebook);
       } catch (error) {
         const failure =
           error instanceof NotesGenerationError
@@ -646,7 +727,7 @@ export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
                 "GEMINI_UNCERTAIN",
                 "Generation did not complete reliably. Operator review is needed before retrying.",
               );
-        cache.fail(key, token, failure.code, failure.retryable, failure.retryAfterSeconds);
+        await jobs.fail(key, token, failure.code, failure.retryable, failure.retryAfterSeconds);
         emit({
           event: "stage",
           stage: "generating",
@@ -654,28 +735,39 @@ export function createWorkspaceService(overrides: Partial<Dependencies> = {}) {
           outputType,
           outputStatus: definitiveFailure(failure.code) ? "failed" : "blocked",
         });
-        failures.push(
+        recordFailure(
+          outputType,
           failure.retryable
             ? new NotesGenerationError(
                 failure.code,
                 failure.message,
                 true,
                 failure.statusCode,
-                cache.retryAfter(key),
+                await jobs.retryAfter(key),
               )
             : failure,
         );
         continue;
       }
       // Persistence failures after generation leave the paid claim fenced.
-      cache.finish(key, token, notebook);
+      await jobs.finish(key, token, notebook);
       await complete(outputType, notebook, false, key);
     }
-    if (failures.length) throw failures.find((f) => !definitiveFailure(f.code)) ?? failures[0];
+    if (failures.length && !materials.length)
+      throw failures.find((f) => !definitiveFailure(f.code)) ?? failures[0];
     stage("rendering", "Validated study material is ready for notebook rendering");
     progress(95, "Opening your study set");
     progress(100, "Your study set is ready");
-    return workspaceResultSchema.parse({ status: "ready", source: publicSource, materials });
+    return workspaceResultSchema.parse({
+      status: "ready",
+      source: publicSource,
+      materials,
+      ...(outputFailures.length
+        ? { completionStatus: "partially_completed", failures: outputFailures }
+        : {}),
+    });
   };
 }
-export const processWorkspace = createWorkspaceService();
+// Historical factory retained for legacy tests/operators; the public default
+// follows the no-student-persistence policy.
+export { processTemporaryWorkspace as processWorkspace } from "./temporary-workspace.service.js";

@@ -176,7 +176,11 @@ it("Retry keeps output settings, reuses successful outputs and generates only mi
     });
     const request = { sourceType: "pdf", outputTypes: ["detailed_notes", "short_notes"] },
       file = { buffer: Buffer.from("pdf"), originalname: "a.pdf" };
-    await assert.rejects(service(request, file, () => {}));
+    const partial = await service(request, file, () => {});
+    assert.equal(partial.completionStatus, "partially_completed");
+    assert.equal(partial.materials.length, 1);
+    assert.equal(partial.failures[0].outputType, "short_notes");
+    assert.equal(partial.failures[0].retryable, true);
     const result = await service(request, file, () => {});
     assert.equal(result.status, "ready");
     assert.deepEqual(calls, ["detailed_notes", "short_notes", "short_notes"]);

@@ -9,7 +9,25 @@ const MAX_RESPONSE_BYTES = 2_000_000;
 export function freeggTransport(key: string, request: typeof fetch = globalThis.fetch) {
   return {
     async generateContent(input: GenerateContentParameters): Promise<GenerateContentResponse> {
-      const contents = input.contents as { parts?: { text?: string }[] }[];
+      const contents = input.contents as {
+        parts?: {
+          text?: string;
+          inlineData?: { mimeType?: string; data?: string; displayName?: string };
+        }[];
+      }[];
+      const parts = contents.flatMap((item) => item.parts ?? []);
+      const files = parts.filter((part) => part.inlineData);
+      if (
+        files.some(
+          (part) => part.inlineData?.mimeType !== "application/pdf" || !part.inlineData.data,
+        )
+      )
+        throw new NotesGenerationError(
+          "GEMINI_REQUEST_INVALID",
+          "Only PDF file inputs are supported.",
+          false,
+          400,
+        );
       const config = input.config;
       const messages = [
         {
@@ -18,10 +36,17 @@ export function freeggTransport(key: string, request: typeof fetch = globalThis.
         },
         {
           role: "user",
-          content: contents
-            .flatMap((item) => item.parts ?? [])
-            .map((part) => part.text ?? "")
-            .join("\n"),
+          content: files.length
+            ? parts.map((part) =>
+                part.inlineData
+                  ? {
+                      type: "input_file",
+                      filename: part.inlineData.displayName ?? "document.pdf",
+                      file_data: `data:application/pdf;base64,${part.inlineData.data}`,
+                    }
+                  : { type: "input_text", text: part.text ?? "" },
+              )
+            : parts.map((part) => part.text ?? "").join("\n"),
         },
       ];
       const signal = config?.abortSignal ?? AbortSignal.timeout(300000);

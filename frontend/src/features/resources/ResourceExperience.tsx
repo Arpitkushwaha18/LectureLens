@@ -87,34 +87,28 @@ function FlashcardDeck({ content }: { content: Extract<ResourceContent, { type: 
     </section>
   );
 }
-function QuizActivity({ content }: { content: Extract<ResourceContent, { type: "mcq_quiz" }> }) {
+function QuizActivity({
+  content,
+}: {
+  content: Extract<ResourceContent, { type: "mcq_quiz" }>;
+  resourceId?: string;
+}) {
   const [index, setIndex] = useState(0),
     [answers, setAnswers] = useState<(number | null)[]>(() => content.questions.map(() => null)),
-    [submitted, setSubmitted] = useState(false),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [submitted, setSubmitted] = useState(false);
   const question = content.questions[index]!,
     total = content.questions.reduce((sum, q) => sum + q.marks, 0),
     score = content.questions.reduce(
       (sum, q, i) => sum + (answers[i] === q.answerIndex ? q.marks : 0),
       0,
     );
-  async function submit() {
-    setBusy(true);
-    setError("");
-    try {
-      setSubmitted(true);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+  function submit() {
+    setSubmitted(true);
   }
   function retry() {
     setAnswers(content.questions.map(() => null));
     setIndex(0);
     setSubmitted(false);
-    setError("");
   }
   return (
     <section className="quiz-activity" aria-label="Interactive quiz">
@@ -153,7 +147,7 @@ function QuizActivity({ content }: { content: Extract<ResourceContent, { type: "
           <Button onClick={retry}>Retry quiz</Button>
         </div>
       ) : null}
-      <fieldset className="quiz-question" disabled={submitted || busy}>
+      <fieldset className="quiz-question" disabled={submitted}>
         <legend>
           {index + 1}. {question.question}{" "}
           <small>
@@ -198,14 +192,9 @@ function QuizActivity({ content }: { content: Extract<ResourceContent, { type: "
           Next question
         </Button>
       </div>
-      {!submitted ? (
-        <Button onClick={() => void submit()} disabled={busy}>
-          {busy ? "Saving your attempt…" : "Submit quiz"}
-        </Button>
-      ) : null}
-      {error ? <p role="alert">{error}</p> : null}
+      {!submitted ? <Button onClick={submit}>Submit quiz</Button> : null}
       <p className="text-xs text-ink-muted">
-        Your answers and marks stay in this tab. Retry any time to practise again.
+        Your answers and marks stay on this page only. Retry any time to practise again.
       </p>
     </section>
   );
@@ -280,9 +269,11 @@ function SamplePaper({
 export function ResourceExperience({
   content,
   sourceName,
+  resourceId,
 }: {
   content: ResourceContent;
   sourceName?: string;
+  resourceId?: string;
 }) {
   return (
     <div className={`resource-experience resource-${content.type}`}>
@@ -304,9 +295,13 @@ export function ResourceExperience({
           </div>
         </article>
       ) : content.type === "flashcards" ? (
-        <FlashcardDeck content={content} />
+        <FlashcardDeck key={JSON.stringify(content.cards)} content={content} />
       ) : content.type === "mcq_quiz" ? (
-        <QuizActivity content={content} />
+        <QuizActivity
+          key={JSON.stringify(content.questions)}
+          content={content}
+          resourceId={resourceId}
+        />
       ) : content.type === "mindmap" ? (
         <section className="mind-map-collection">
           <header className="experience-heading">

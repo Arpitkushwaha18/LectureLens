@@ -1,7 +1,7 @@
 // Read-only: does not acquire captions, reserve jobs, generate content or apply SQL.
-import {config} from 'dotenv';
-import {fileURLToPath} from 'node:url';
-config({path:fileURLToPath(new URL('../.env',import.meta.url)),quiet:true});
+import { config } from "dotenv";
+import { fileURLToPath } from "node:url";
+config({ path: fileURLToPath(new URL("../.env", import.meta.url)), quiet: true });
 import { createClient } from "@supabase/supabase-js";
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) {
   console.error("Backend Supabase connection is not configured.");

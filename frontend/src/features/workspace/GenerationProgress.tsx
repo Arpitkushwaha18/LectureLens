@@ -28,17 +28,7 @@ export function GenerationProgress({
       </span>
       <div className="min-w-0">
         <h2 className="text-xl">{ready ? "Your notes are ready" : "Preparing your notes"}</h2>
-        {!ready ? (
-          <p className="mt-1 text-sm text-ink-soft">
-            {event.stage === "validating"
-              ? "Getting started…"
-              : event.stage === "extracting"
-                ? "Reading your lecture…"
-                : event.stage === "rendering"
-                  ? "Opening your notebook…"
-                  : "Working on your notebook…"}
-          </p>
-        ) : null}
+        {!ready ? <p className="mt-1 text-sm text-ink-soft">{event.message}</p> : null}
       </div>
     </section>
   );

@@ -125,6 +125,10 @@ export function AIWorkspacePage() {
             want to learn — from deeper notes to smarter revision.
           </p>
           <p className="margin-note mt-3 text-sm">Your material. Your way of learning.</p>
+          <p className="mt-3 text-xs text-ink-muted">
+            No account or saved history. Download your study set before leaving or refreshing;
+            generated work is not added to the Notes Gallery.
+          </p>
           <TutorSearchBar />
         </header>
 
@@ -457,7 +461,12 @@ export function AIWorkspacePage() {
         ) : null}
         {run.error ? (
           <div role="alert" className="my-5 border-l-4 border-terracotta bg-terracotta-soft p-4">
-            <h2 className="text-xl">We couldn’t prepare your study materials.</h2>
+            <h2 className="text-xl">
+              {run.materials.length
+                ? "Some materials need another attempt."
+                : "We couldn’t prepare your study materials."}
+            </h2>
+            <p className="mt-2 text-sm">{run.error.message}</p>
             {run.error.retryable && run.retryAfterSeconds === 0 ? (
               <div className="mt-2">
                 <Button type="button" onClick={run.retry} disabled={run.busy}>
@@ -483,7 +492,7 @@ export function AIWorkspacePage() {
         ) : null}
         {run.result?.status === "pending" ? (
           <div role="status" className="my-5 border-l-4 border-navy p-4">
-            <p>Your study materials aren’t ready yet.</p>
+            <p>{run.result.message}</p>
             {run.result.retrySafe === true ? (
               <p className="mt-2 text-sm">
                 {run.retryAfterSeconds > 0 ? (
@@ -552,7 +561,11 @@ export function AIWorkspacePage() {
         ) : null}
         {run.materials.length && run.source ? (
           <NotebookResults
-            result={{ status: "ready", source: run.source, materials: run.materials }}
+            result={
+              run.result?.status === "ready"
+                ? run.result
+                : { status: "ready", source: run.source, materials: run.materials }
+            }
           />
         ) : null}
         <footer

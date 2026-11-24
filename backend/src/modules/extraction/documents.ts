@@ -51,17 +51,6 @@ export async function extractDocument(
         }
       | undefined;
     const started = performance.now();
-    const ocrChildren = new Set<number>();
-    const stopOcr = () => {
-      for (const pid of ocrChildren) {
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {
-          /* The subprocess may have exited already. */
-        }
-      }
-      ocrChildren.clear();
-    };
     const worker = new Worker(
       new URL(
         import.meta.url.endsWith(".ts") ? "./document-worker.ts" : "./document-worker.js",
@@ -70,12 +59,11 @@ export async function extractDocument(
       {
         workerData: { bytes, kind, extension, previous: options?.previous },
         resourceLimits: { maxOldGenerationSizeMb: 256 },
-        ...(import.meta.url.endsWith(".ts") ? { execArgv: ["--import", "tsx"] } : {}),
+        execArgv: import.meta.url.endsWith(".ts") ? ["--import", "tsx"] : [],
       },
     );
     const timer = setTimeout(
       () => {
-        stopOcr();
         void worker.terminate();
         if (checkpoint?.pages.some((page) => page.text.trim())) {
           const pages = [...checkpoint.pages],
@@ -122,7 +110,6 @@ export async function extractDocument(
     );
     const cancel = () => {
       clearTimeout(timer);
-      stopOcr();
       void worker.terminate();
       reject(
         new AppError("Extraction cancelled. No generation request was started.", {
@@ -142,11 +129,6 @@ export async function extractDocument(
         onMetric?.(message.metric);
         return;
       }
-      if (Number.isSafeInteger(message.ocrPid) && message.ocrPid > 0) {
-        if (message.active) ocrChildren.add(message.ocrPid);
-        else ocrChildren.delete(message.ocrPid);
-        return;
-      }
       if (message.progress) {
         onProgress?.(message.progress);
         return;
@@ -157,7 +139,6 @@ export async function extractDocument(
         ms: performance.now() - started,
         rss: process.memoryUsage().rss,
       });
-      stopOcr();
       void worker.terminate();
       if (!message.ok) {
         reject(new AppError(message.message, { code: "FILE_EXTRACTION", statusCode: 422 }));
@@ -177,7 +158,6 @@ export async function extractDocument(
       else resolve(parsed.data);
     });
     worker.once("error", () => {
-      stopOcr();
       clearTimeout(timer);
       reject(
         new AppError("File could not be processed safely. Upload a smaller, valid file.", {
@@ -188,7 +168,6 @@ export async function extractDocument(
     });
     worker.once("exit", (code) => {
       options?.signal?.removeEventListener("abort", cancel);
-      stopOcr();
       if (code !== 0) {
         clearTimeout(timer);
         reject(

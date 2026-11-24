@@ -1,10 +1,8 @@
 import { Router } from "express";
 
 import { healthRouter } from "./health.routes.js";
-import { notesRouter } from "./notes.routes.js";
 import { workspaceRouter } from "./workspace.routes.js";
-import { createOperatorRouter } from "./operator.routes.js";
-import { createLibraryRouter } from "./library.routes.js";
+import { createAdminGalleryRouter } from "./admin-gallery.routes.js";
 
 /**
  * Every feature mounts here under /api/v1.
@@ -13,7 +11,5 @@ import { createLibraryRouter } from "./library.routes.js";
 export const apiRouter = Router();
 
 apiRouter.use("/health", healthRouter);
-apiRouter.use("/youtube", notesRouter);
 apiRouter.use("/workspace", workspaceRouter);
-apiRouter.use("/operator", createOperatorRouter());
-apiRouter.use("/library", createLibraryRouter());
+apiRouter.use("/gallery", createAdminGalleryRouter());

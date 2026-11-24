@@ -166,8 +166,13 @@ export const extractedSourceSchema = z.strictObject({
 });
 // YouTube captions are internal. The public boundary cannot carry text, segments or timestamps.
 export const publicSourceSchema = z.union([
-  z.strictObject({kind:z.literal('youtube'),name:text(240),language:z.string().max(35).optional(),warnings:z.array(text(1000)).max(100)}),
-  extractedSourceSchema.extend({kind:z.enum(['pdf','spreadsheet'])}),
+  z.strictObject({
+    kind: z.literal("youtube"),
+    name: text(240),
+    language: z.string().max(35).optional(),
+    warnings: z.array(text(1000)).max(100),
+  }),
+  extractedSourceSchema.extend({ kind: z.enum(["pdf", "spreadsheet"]) }),
 ]);
 export type PublicSource = z.infer<typeof publicSourceSchema>;
 export const workspaceResultSchema = z.discriminatedUnion("status", [
@@ -181,6 +186,19 @@ export const workspaceResultSchema = z.discriminatedUnion("status", [
     status: z.literal("ready"),
     source: publicSourceSchema,
     materials: z.array(studyMaterialSchema).min(1).max(6),
+    completionStatus: z.enum(["completed", "partially_completed"]).optional(),
+    failures: z
+      .array(
+        z.strictObject({
+          outputType: generationOutputTypeV2Schema,
+          code: text(64),
+          message: text(2000),
+          retryable: z.boolean(),
+          retryAfterSeconds: z.number().int().min(1).max(86400).optional(),
+        }),
+      )
+      .max(6)
+      .optional(),
   }),
   z.strictObject({
     status: z.literal("pending"),

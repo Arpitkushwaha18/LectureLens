@@ -60,10 +60,11 @@ it("password-protected PDFs give a useful unlocked-copy error", async () => {
     /password-protected/,
   );
 });
-it("empty/image-based PDFs explain OCR, corrupt and invalid PDFs fail honestly", async () => {
-  const partial = await extractDocument(await scannedPdf(), "scanned.pdf", "pdf");
-  assert.equal(partial.partial, true);
-  assert.match(partial.failedPages[0].reason, /OCR/);
+it("image-based PDFs are prepared for model file input without local OCR; invalid PDFs fail honestly", async () => {
+  const source = await extractDocument(await scannedPdf(), "scanned.pdf", "pdf");
+  assert.equal(source.partial, false);
+  assert.deepEqual(source.failedPages, []);
+  assert.match(source.warnings.join(" "), /Local OCR is disabled/);
   for (const bytes of [Buffer.from("not a pdf"), Buffer.from("%PDF-1.7 corrupt")])
     await assert.rejects(extractDocument(bytes, "bad.pdf", "pdf"), /PDF/i);
 });

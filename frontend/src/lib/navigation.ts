@@ -1,4 +1,4 @@
-import { Home, Sparkles, type LucideIcon } from "lucide-react";
+import { Home, Sparkles, Library, type LucideIcon } from "lucide-react";
 
 export type NavItem = {
   label: string;
@@ -30,6 +30,7 @@ export const navGroups: NavGroup[] = [
     id: "create",
     label: "Create",
     items: [
+      { label: "Notes Gallery", to: "/gallery", icon: Library, blurb: "Shared study shelf" },
       {
         label: "UrTutor",
         to: "/assistant",
@@ -43,6 +44,8 @@ export const navGroups: NavGroup[] = [
 export const allNavItems: NavItem[] = navGroups.flatMap((group) => group.items);
 
 export function findNavItem(pathname: string): NavItem | undefined {
+  if (pathname === "/admin")
+    return { label: "Gallery Admin", to: "/admin", icon: Library, blurb: "Upload course notes" };
   if (pathname === "/ask")
     return { label: "Ask UrTutor", to: "/ask", icon: Sparkles, blurb: "Your question" };
   return allNavItems.find((item) =>

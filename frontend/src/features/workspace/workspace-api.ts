@@ -12,7 +12,7 @@ export async function processSource(
   if (file) body.append("file", file);
   const response = await fetch(`${baseUrl}/workspace/process`, {
     method: "POST",
-    credentials: "include",
+    credentials: "omit",
     headers: { "X-LectureLens-Request": "1" },
     body,
     signal: AbortSignal.any([signal, AbortSignal.timeout(600000)]),
@@ -73,7 +73,7 @@ export async function processSource(
     }
     if (!completed)
       throw new Error(
-        "The connection ended before processing completed. Check again; backend jobs prevent duplicate paid requests.",
+        "The connection ended before processing completed. Your completed materials remain on this page; retry the missing outputs.",
       );
   } finally {
     await reader.cancel();

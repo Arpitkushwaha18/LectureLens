@@ -260,6 +260,15 @@ export const resourceListSchema = z.strictObject({
   hasMore: z.boolean(),
   storage: z.enum(["supabase", "local_postgres"]),
 });
+export const resourceListFiltersSchema = z.strictObject({
+  scope: z.enum(["published", "mine"]).default("published"),
+  offset: z.coerce.number().int().min(0).max(10000).default(0),
+  search: z.string().trim().max(180).optional(),
+  subject: z.string().trim().max(180).optional(),
+  outputType: generationOutputTypeV2Schema.optional(),
+  sourceType: z.enum(["youtube", "pdf", "spreadsheet"]).optional(),
+  language: transcriptLanguageSchema.optional(),
+});
 export const quizSubmissionSchema = z.strictObject({
   submissionId: z.uuid(),
   answers: z.array(z.number().int().min(0).max(5).nullable()).min(1).max(160),

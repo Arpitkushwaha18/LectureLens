@@ -62,7 +62,7 @@ it("actual HTTP uploads/parsers and stage stream pass real PDF/XLSX/XLS/CSV text
       data.append("file", new Blob([bytes]), name);
       const res = await fetch(
         `http://127.0.0.1:${server.address().port}/api/v1/workspace/process`,
-        { method: "POST", body: data },
+        { method: "POST", body: data, headers: { "X-LectureLens-Request": "1" } },
       );
       assert.equal(res.status, 200);
       return (await res.text()).trim().split("\n").map(JSON.parse);

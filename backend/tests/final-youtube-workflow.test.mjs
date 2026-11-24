@@ -621,14 +621,16 @@ it("partial YouTube notes failure keeps the successful result, and retry generat
         outputTypes: ["detailed_notes", "short_notes"],
       },
       events = [];
-    await assert.rejects(
-      () => service(options, undefined, (e) => events.push(e)),
-      (e) => e.code === "GEMINI_INVALID_OUTPUT",
-    );
+    const partial = await service(options, undefined, (e) => events.push(e));
+    assert.equal(partial.status, "ready");
+    assert.equal(partial.completionStatus, "partially_completed");
+    assert.equal(partial.materials.length, 1);
+    assert.equal(partial.failures[0].code, "GEMINI_INVALID_OUTPUT");
+    assert.equal(partial.failures[0].outputType, "short_notes");
     assert.equal(events.filter((e) => e.event === "material").length, 1);
     assert.equal(
       events.some((e) => e.event === "progress" && e.percent === 100),
-      false,
+      true,
     );
     assert.equal(
       (await db.query("select count(*) as count from ll_private.youtube_saved_notes")).rows[0]

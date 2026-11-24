@@ -30,6 +30,13 @@ async function notebookCss() {
 }
 export function sanitizeNotebookHtml(html: string) {
   return sanitizeHtml(html, {
+    // Source diagnostics remain available on screen, never inside exported notes.
+    exclusiveFilter: (frame) =>
+      (frame.attribs.class ?? "")
+        .split(/\s+/)
+        .some((name) =>
+          ["notebook-limitations", "notebook-disclaimer", "source-review"].includes(name),
+        ),
     allowedTags: [
       "section",
       "article",

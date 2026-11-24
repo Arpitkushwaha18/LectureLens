@@ -229,22 +229,23 @@ describe("B3 HTTP validation, no account gate and honest unconfigured state", ()
   });
   it("keeps health public and rejects malformed YouTube input", async () => {
     assert.equal((await fetch(`${origin}/api/v1/health`)).status, 200);
-    const response = await fetch(`${origin}/api/v1/youtube/detailed-notes`, {
+    const response = await fetch(`${origin}/api/v1/workspace/verify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-LectureLens-Request": "1" },
       body: JSON.stringify({ url: "invalid" }),
     });
     assert.equal(response.status, 400);
     assert.equal((await response.json()).error.code, "VALIDATION_ERROR");
   });
   it("does not accept an unconfigured database or expose internal secrets", async () => {
-    const response = await fetch(`${origin}/api/v1/youtube/detailed-notes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
+    const response = await fetch(`${origin}/api/v1/gallery/notes`);
     assert.equal(response.status, 503);
     assert.equal((await response.json()).error.code, "DATABASE_NOT_CONFIGURED");
+    assert.equal(
+      (await fetch(`${origin}/api/v1/youtube/detailed-notes`, { method: "POST" })).status,
+      404,
+    );
+    assert.equal((await fetch(`${origin}/api/v1/library/session`, { method: "POST" })).status, 404);
   });
   it("classifies oversized and malformed JSON safely", async () => {
     for (const [body, status] of [
