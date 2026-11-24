@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { spawnSync } from "node:child_process";
+import { readFile, readdir } from "node:fs/promises";
 import { readSupabaseBrowserConfig } from "../.cache/workspace-tests/lib/supabase-env.js";
 
 const configured = {
@@ -8,6 +9,43 @@ const configured = {
   VITE_SUPABASE_PUBLISHABLE_KEY: `sb_publishable_${"x".repeat(24)}`,
 };
 describe("B2 browser environment validation", () => {
+  it("unprefixed backend Groq/FreeGG keys never enter a real frontend production bundle", async () => {
+    const groq = "synthetic_groq_backend_only_never_public",
+      freegg = "synthetic_freegg_backend_only_never_public";
+    const result = spawnSync(
+      process.execPath,
+      ["node_modules/vite/bin/vite.js", "build", "--outDir", ".cache/provider-secret-build"],
+      {
+        cwd: new URL("..", import.meta.url),
+        env: { ...process.env, GROQ_API_KEY: groq, FREEGG_API_KEY: freegg },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const directory = new URL("../.cache/provider-secret-build/assets/", import.meta.url);
+    for (const file of await readdir(directory)) {
+      if (!/\.(js|css)$/.test(file)) continue;
+      const content = await readFile(new URL(file, directory), "utf8");
+      assert.ok(!content.includes(groq));
+      assert.ok(!content.includes(freegg));
+    }
+    assert.ok(!`${result.stdout}${result.stderr}`.includes(groq));
+    assert.ok(!`${result.stdout}${result.stderr}`.includes(freegg));
+  });
+  for (const name of ["VITE_GROQ_API_KEY", "VITE_FREEGG_API_KEY"]) {
+    it(`blocks ${name} before production bundling without exposing its value`, () => {
+      const fixture = "synthetic_server_only_key_never_bundle";
+      const result = spawnSync(process.execPath, ["node_modules/vite/bin/vite.js", "build"], {
+        cwd: new URL("..", import.meta.url),
+        env: { ...process.env, [name]: fixture },
+        encoding: "utf8",
+      });
+      assert.notEqual(result.status, 0);
+      assert.ok(result.stderr.includes("Invalid public Supabase configuration"));
+      assert.ok(!`${result.stdout}${result.stderr}`.includes(fixture));
+      assert.equal(readSupabaseBrowserConfig({ [name]: fixture }).status, "invalid");
+    });
+  }
   it("rejects a VITE TranscriptFetch key before bundling without exposing it", () => {
     const fixture = "tf_live_synthetic_never_bundle";
     const result = spawnSync(process.execPath, ["node_modules/vite/bin/vite.js", "build"], {

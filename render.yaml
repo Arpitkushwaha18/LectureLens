@@ -25,8 +25,20 @@ services:
         sync: false
       - key: GALLERY_ADMIN_PASSWORD
         sync: false
-      - key: AI_PROVIDER
+      - key: AI_PRIMARY_PROVIDER
+        value: groq
+      - key: AI_FALLBACK_PROVIDER
         value: freegg
+      - key: GROQ_ENABLED
+        value: "true"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: FREEGG_ENABLED
+        value: "true"
+      - key: FREEGG_BASE_URL
+        value: https://freegg.app/v1
       - key: FREEGG_API_KEY
         sync: false
       - key: FREEGG_MODEL

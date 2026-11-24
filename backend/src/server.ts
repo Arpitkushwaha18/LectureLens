@@ -3,10 +3,15 @@ import { env } from "./config/env.js";
 import { logger } from "./lib/logger.js";
 import { validateGeminiStartup } from "./modules/ai/gemini-client.js";
 try {
-  if (env.AI_PROVIDER === "freegg") {
+  if (env.AI_PRIMARY_PROVIDER || env.AI_PROVIDER !== "gemini") {
     logger.info(
-      { provider: "freegg", model: env.FREEGG_MODEL, configured: Boolean(env.FREEGG_API_KEY) },
-      "FreeGG selected; no startup generation request",
+      {
+        provider: env.AI_PRIMARY_PROVIDER ?? env.AI_PROVIDER,
+        fallback: env.AI_FALLBACK_PROVIDER,
+        groqConfigured: Boolean(env.GROQ_ENABLED && env.GROQ_API_KEY),
+        freeggConfigured: Boolean(env.FREEGG_ENABLED && env.FREEGG_API_KEY),
+      },
+      "AI routing configured; no startup generation request. Missing primary credentials produce a controlled request-time configuration error",
     );
   } else {
     const model = await validateGeminiStartup();

@@ -18,6 +18,7 @@ for (const key of [
   "GEMINI_MODEL",
   "TRANSCRIPTFETCH_API_KEY",
   "FREEGG_API_KEY",
+  "GROQ_API_KEY",
 ])
   process.env[key] = "";
 const { createApp } = await import("../../backend/dist/app.js");

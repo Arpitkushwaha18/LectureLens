@@ -6,7 +6,11 @@ const ENDPOINT = "https://freegg.app/v1/responses";
 const MAX_RESPONSE_BYTES = 2_000_000;
 
 /** OpenAI-compatible transport. No Gemini requests, guessed model limits or automatic retries. */
-export function freeggTransport(key: string, request: typeof fetch = globalThis.fetch) {
+export function freeggTransport(
+  key: string,
+  request: typeof fetch = globalThis.fetch,
+  baseUrl = "https://freegg.app/v1",
+) {
   return {
     async generateContent(input: GenerateContentParameters): Promise<GenerateContentResponse> {
       const contents = input.contents as {
@@ -54,20 +58,26 @@ export function freeggTransport(key: string, request: typeof fetch = globalThis.
       await recordGenerationEvidence({ kind: "dispatch" });
       let response: Response;
       try {
-        response = await request(ENDPOINT, {
-          method: "POST",
-          redirect: "error",
-          signal,
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-          body: JSON.stringify({
-            model: input.model,
-            input: messages,
-            max_output_tokens: config?.maxOutputTokens ?? 8192,
-            text: { format: { type: "json_object" } },
-            store: false,
-            stream: false,
-          }),
-        });
+        response = await request(
+          baseUrl === "https://freegg.app/v1"
+            ? ENDPOINT
+            : `${baseUrl.replace(/\/$/, "")}/responses`,
+          {
+            method: "POST",
+            redirect: "error",
+            signal,
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+            body: JSON.stringify({
+              model: input.model,
+              input: messages,
+              max_output_tokens: config?.maxOutputTokens ?? 8192,
+              temperature: config?.temperature ?? 0.2,
+              text: { format: { type: "json_object" } },
+              store: false,
+              stream: false,
+            }),
+          },
+        );
       } catch (error) {
         const code = (error as { cause?: { code?: string } })?.cause?.code;
         if (["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED"].includes(code ?? "")) {
@@ -126,6 +136,13 @@ export function freeggTransport(key: string, request: typeof fetch = globalThis.
       let body: {
         id?: string;
         status?: string;
+        usage?: {
+          input_tokens?: number;
+          output_tokens?: number;
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          total_tokens?: number;
+        };
         output?: { type?: string; role?: string; content?: { type?: string; text?: string }[] }[];
       };
       try {
@@ -157,6 +174,13 @@ export function freeggTransport(key: string, request: typeof fetch = globalThis.
         text,
         responseId: typeof body.id === "string" ? body.id : undefined,
         candidates: [{ finishReason: "STOP" }],
+        usageMetadata: body.usage
+          ? {
+              promptTokenCount: body.usage.input_tokens ?? body.usage.prompt_tokens,
+              candidatesTokenCount: body.usage.output_tokens ?? body.usage.completion_tokens,
+              totalTokenCount: body.usage.total_tokens,
+            }
+          : undefined,
       } as GenerateContentResponse;
     },
   };

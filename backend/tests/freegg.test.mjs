@@ -158,7 +158,7 @@ it("FreeGG key settings accept bearer-key characters but reject whitespace, and 
     [
       "--input-type=module",
       "-e",
-      `globalThis.fetch=()=>{throw new Error('NETWORK_NOT_ALLOWED')};const {getConfiguredStudyGemini}=await import('./dist/modules/ai/gemini-study.js');try{getConfiguredStudyGemini();process.exit(1)}catch(e){if(e.code!=='GEMINI_NOT_CONFIGURED')throw e}`,
+      `globalThis.fetch=()=>{throw new Error('NETWORK_NOT_ALLOWED')};const {getConfiguredStudyGemini}=await import('./dist/modules/ai/gemini-study.js');try{getConfiguredStudyGemini();process.exit(1)}catch(e){if(e.code!=='AI_CONFIGURATION')throw e}`,
     ],
     {
       env: {

@@ -12,7 +12,7 @@ import {
   type DetailedNotes,
 } from "@lecturelens/contracts";
 import { env } from "../../config/env.js";
-import { freeggTransport } from "./freegg-client.js";
+import { getConfiguredProvider } from "./configured-provider.js";
 import { AppError } from "../../lib/errors.js";
 import { recordGenerationEvidence } from "./generation-evidence.js";
 import {
@@ -244,19 +244,24 @@ export function createGeminiNotesGenerator(model: string, transport: GeminiTrans
 
 let configuredGenerator: ReturnType<typeof createGeminiNotesGenerator> | undefined;
 export function getConfiguredGemini(cacheLookupOnly = false) {
-  if (env.AI_PROVIDER === "freegg") {
-    if (!env.FREEGG_API_KEY)
+  if (env.AI_PRIMARY_PROVIDER || env.AI_PROVIDER !== "gemini") {
+    const primary = env.AI_PRIMARY_PROVIDER ?? (env.AI_PROVIDER === "freegg" ? "freegg" : "groq");
+    if (
+      !(primary === "groq"
+        ? env.GROQ_ENABLED && env.GROQ_API_KEY
+        : env.FREEGG_ENABLED && env.FREEGG_API_KEY)
+    )
       throw new NotesGenerationError(
-        "GEMINI_NOT_CONFIGURED",
-        "Set FREEGG_API_KEY in backend/.env and restart the backend.",
+        "AI_CONFIGURATION",
+        "Configure the selected primary AI provider on the backend.",
         false,
         503,
       );
     configuredGenerator ??= createGeminiNotesGenerator(
-      env.FREEGG_MODEL,
-      freeggTransport(env.FREEGG_API_KEY),
+      getConfiguredProvider().model,
+      getConfiguredProvider(),
     );
-    return { model: `freegg:${env.FREEGG_MODEL}`, generate: configuredGenerator };
+    return { model: getConfiguredProvider().model, generate: configuredGenerator };
   }
   if (!cacheLookupOnly) assertGeminiStartup();
   if (!env.GEMINI_API_KEY || !env.GEMINI_MODEL)

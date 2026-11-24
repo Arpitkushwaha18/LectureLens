@@ -254,7 +254,7 @@ export function TutorChat({ initialPrompt = "" }: { initialPrompt?: string }) {
           >
             <option value="auto">Auto · quick unless you request detail</option>
             <option value="quick">Quick · Gemini</option>
-            <option value="detailed">Detailed · FreeGG</option>
+            <option value="detailed">Detailed · Groq / FreeGG</option>
           </select>
         </label>
         <div className="flex items-end gap-2 rounded-2xl border border-rule-strong bg-paper p-2 shadow-[inset_0_1px_0_rgba(0,0,0,0.03)] focus-within:border-navy/50">

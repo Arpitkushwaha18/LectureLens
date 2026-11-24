@@ -6,7 +6,8 @@ import {
 } from "@google/genai";
 import { geminiResponseSchema } from "./gemini-schema.js";
 import { geminiClient, assertGeminiStartup } from "./gemini-client.js";
-import { freeggTransport } from "./freegg-client.js";
+import { getConfiguredProvider } from "./configured-provider.js";
+import { createLongSourceGenerator } from "./long-source.js";
 import { createGeminiTutorGenerator, createGeminiTutorFailover } from "./gemini-tutor.js";
 import {
   notebookSchema,
@@ -71,6 +72,11 @@ export function createGeminiStudyGenerator(model: string, transport: Transport) 
       task?: "tutor";
       answerLength?: "detailed";
       pdf?: { data: string; name: string };
+      signal?: AbortSignal;
+      onChunkProgress?: (completed: number, total: number) => void;
+      // Internal chunk controls, never accepted from public request JSON.
+      chunkItemCount?: number;
+      chunkPosition?: { index: number; total: number };
     } = {},
   ): Promise<Notebook> => {
     const preferences = {
@@ -78,11 +84,19 @@ export function createGeminiStudyGenerator(model: string, transport: Transport) 
       outputLanguage: "en" as const,
     };
     const count =
-      outputType === "flashcards"
+      counts.chunkItemCount ??
+      (outputType === "flashcards"
         ? flashcardCountSchema.parse(counts.flashcardCount)
         : outputType === "mcq_quiz"
           ? quizCountSchema.parse(counts.quizCount)
-          : undefined;
+          : undefined);
+    if (count !== undefined && (!Number.isInteger(count) || count < 1 || count > 30))
+      throw new NotesGenerationError(
+        "GEMINI_REQUEST_INVALID",
+        "Invalid internal practice item count.",
+        false,
+        400,
+      );
     const { source, segments } = prepareGenerationSource(transcriptTextSchema.parse(text));
     const budget = generationBudget(
       source.length,
@@ -97,6 +111,12 @@ export function createGeminiStudyGenerator(model: string, transport: Transport) 
         : {}),
       ...(segments.length === 1 ? { source } : { sourceSegments: segments }),
       requestedOutput: outputType,
+      ...(counts.chunkPosition
+        ? {
+            sourcePart: counts.chunkPosition,
+            chunkInstructions: `This is an ordered part of a longer source. Cover all significant concepts in this part with definitions, step-by-step explanations, examples, formulas, useful comparisons/diagrams, applications and a conclusion where supported. Avoid generic repeated introductions and duplicated overlap. For notes, aim for at most ${Math.max(1, Math.floor(150 / counts.chunkPosition.total))} substantive blocks, using detailed paragraph text (up to 5000 characters per block) rather than many tiny blocks, so the full lecture fits the existing notebook format. Do not shorten important explanations to hit this target; retain all significant concepts. Do not invent syllabus or exam provenance.`,
+          }
+        : {}),
       ...(count ? { requestedCount: count } : {}),
       ...(counts.task === "tutor"
         ? {
@@ -186,15 +206,17 @@ export function createGeminiStudyGenerator(model: string, transport: Transport) 
                   },
                 }
               : {}),
-          abortSignal: AbortSignal.timeout(
-            counts.task === "tutor"
-              ? counts.answerLength === "detailed"
-                ? 180000
-                : 30000
-              : transport.get
-                ? budget.timeoutMs
-                : 300000,
-          ),
+          abortSignal:
+            counts.signal ??
+            AbortSignal.timeout(
+              counts.task === "tutor"
+                ? counts.answerLength === "detailed"
+                  ? 180000
+                  : 30000
+                : transport.get
+                  ? budget.timeoutMs
+                  : 300000,
+            ),
           httpOptions: {
             timeout:
               counts.task === "tutor"
@@ -295,33 +317,39 @@ export function getConfiguredTutorGemini(_cacheLookupOnly = false) {
 }
 let longTutorConfigured: ReturnType<typeof createGeminiStudyGenerator> | undefined;
 export function getConfiguredLongTutor() {
-  if (!env.FREEGG_API_KEY)
+  const provider = getConfiguredProvider();
+  assertPrimaryConfigured();
+  longTutorConfigured ??= managedStudyGenerator();
+  return { model: provider.model, generate: longTutorConfigured };
+}
+function assertPrimaryConfigured() {
+  const primary = env.AI_PRIMARY_PROVIDER ?? (env.AI_PROVIDER === "freegg" ? "freegg" : "groq");
+  if (
+    !(primary === "groq"
+      ? env.GROQ_ENABLED && env.GROQ_API_KEY
+      : env.FREEGG_ENABLED && env.FREEGG_API_KEY)
+  )
     throw new NotesGenerationError(
-      "GEMINI_NOT_CONFIGURED",
-      "FreeGG is not configured for detailed answers.",
+      "AI_CONFIGURATION",
+      "The primary AI provider needs an enabled backend key. Configure it or explicitly select another primary.",
       false,
       503,
     );
-  longTutorConfigured ??= createGeminiStudyGenerator(
-    env.FREEGG_MODEL,
-    freeggTransport(env.FREEGG_API_KEY),
-  );
-  return { model: `freegg:${env.FREEGG_MODEL}`, generate: longTutorConfigured };
+}
+function managedStudyGenerator() {
+  const provider = getConfiguredProvider();
+  return createLongSourceGenerator(createGeminiStudyGenerator(provider.model, provider), {
+    chunkTokens: env.AI_CHUNK_TOKENS,
+    overlapTokens: env.AI_CHUNK_OVERLAP_TOKENS,
+    maxChunks: env.AI_MAX_CHUNKS,
+    timeoutMs: env.AI_JOB_TIMEOUT_MS,
+  });
 }
 export function getConfiguredStudyGemini(cacheLookupOnly = false) {
-  if (env.AI_PROVIDER === "freegg") {
-    if (!env.FREEGG_API_KEY)
-      throw new NotesGenerationError(
-        "GEMINI_NOT_CONFIGURED",
-        "Set FREEGG_API_KEY in backend/.env and restart the backend.",
-        false,
-        503,
-      );
-    configured ??= createGeminiStudyGenerator(
-      env.FREEGG_MODEL,
-      freeggTransport(env.FREEGG_API_KEY),
-    );
-    return { model: `freegg:${env.FREEGG_MODEL}`, generate: configured };
+  if (env.AI_PRIMARY_PROVIDER || env.AI_PROVIDER !== "gemini") {
+    assertPrimaryConfigured();
+    configured ??= managedStudyGenerator();
+    return { model: getConfiguredProvider().model, generate: configured };
   }
   if (!cacheLookupOnly) assertGeminiStartup();
   if (!env.GEMINI_MODEL || !env.GEMINI_API_KEY)

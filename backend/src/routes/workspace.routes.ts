@@ -24,13 +24,27 @@ export function createWorkspaceRouter(
   requestsPerMinute = 20,
   _libraryOverride?: () => StudyLibrary,
   verificationOverride: typeof videoVerifier = videoVerifier,
-  tutorOverride: (input: unknown, ownerId?: string) => Promise<unknown> = askTemporaryTutor,
+  tutorOverride: (
+    input: unknown,
+    ownerId?: string,
+    signal?: AbortSignal,
+  ) => Promise<unknown> = askTemporaryTutor,
 ) {
   const router = Router();
   router.post("/ask", apiRateLimit(6), async (req, res) => {
     requireStudyRequest(req);
     res.setHeader("Cache-Control", "no-store");
-    res.json({ data: await tutorOverride(req.body) });
+    const controller = new AbortController();
+    const disconnect = () => {
+      if (!res.writableEnded) controller.abort();
+    };
+    res.once("close", disconnect);
+    try {
+      const data = await tutorOverride(req.body, undefined, controller.signal);
+      if (!res.destroyed) res.json({ data });
+    } finally {
+      res.off("close", disconnect);
+    }
   });
   router.post("/verify", apiRateLimit(12), async (req, res) => {
     requireStudyRequest(req);

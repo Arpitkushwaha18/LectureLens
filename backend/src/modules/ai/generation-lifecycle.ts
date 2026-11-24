@@ -34,6 +34,15 @@ export function retryDelay(attempt: number, retryAfter = 60, random: () => numbe
   );
 }
 export function studentGenerationFailure(code: string) {
+  if (code.startsWith("AI_"))
+    return {
+      message: ["AI_QUOTA", "AI_UNAVAILABLE", "AI_BUSY"].includes(code)
+        ? "AI providers are busy or quota-limited. Please retry later."
+        : "AI generation could not be completed. No partial result was published.",
+      retryable: ["AI_QUOTA", "AI_UNAVAILABLE", "AI_BUSY", "AI_TIMEOUT", "AI_TEMPORARY"].includes(
+        code,
+      ),
+    };
   if (!definitiveFailure(code)) return { message: FENCED_JOB_MESSAGE, retryable: false };
   if (
     [

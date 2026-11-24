@@ -27,6 +27,7 @@ import {
   TranscriptExtractionError,
 } from "../modules/extraction/transcriptfetch-transcript.js";
 import { NotesGenerationError } from "../modules/ai/gemini-notes.js";
+import { withProviderSelection } from "../modules/ai/provider-manager.js";
 import { detectSourceLanguage } from "../modules/extraction/language.js";
 import { resolveOutputLanguage } from "../modules/ai/study-preferences.js";
 import { AppError } from "../lib/errors.js";
@@ -166,6 +167,18 @@ export function createTemporaryWorkspaceService(
             sourceLanguage: source.language ?? detectSourceLanguage(source.text),
             flashcardCount: request.flashcardCount,
             quizCount: request.quizCount,
+            signal,
+            onChunkProgress: (completed, total) =>
+              emit({
+                event: "progress",
+                percent:
+                  30 +
+                  Math.floor(
+                    (65 * (materials.length + failures.length + completed / total)) /
+                      request.outputTypes.length,
+                  ),
+                message: `Processing source part ${Math.min(completed + 1, total)} of ${total}`,
+              }),
             ...(source.kind === "pdf" && file
               ? {
                   pdf: {
@@ -204,8 +217,14 @@ export function createTemporaryWorkspaceService(
         failures.push({
           outputType,
           code,
-          message: "This material couldn’t be prepared. You can retry it.",
-          retryable: true,
+          message:
+            error instanceof NotesGenerationError && error.code.startsWith("AI_")
+              ? error.message
+              : "This material couldn’t be prepared. You can retry it.",
+          retryable:
+            error instanceof NotesGenerationError && error.code.startsWith("AI_")
+              ? error.retryable || error.code === "AI_INVALID_OUTPUT"
+              : true,
         });
         emit({
           event: "stage",
@@ -222,6 +241,13 @@ export function createTemporaryWorkspaceService(
         message: "Preparing your study set",
       });
     }
+    if (!materials.length && failures[0]?.code.startsWith("AI_"))
+      throw new NotesGenerationError(
+        failures[0].code,
+        failures[0].message,
+        failures[0].retryable,
+        503,
+      );
     if (!materials.length)
       throw new AppError("Your study set couldn’t be prepared right now. Please retry.", {
         code: "GENERATION_FAILED",
@@ -249,18 +275,18 @@ export function tutorAnswerMode(prompt: string, mode: "auto" | "quick" | "detail
       : "quick"
     : mode;
 }
-export async function askTemporaryTutor(input: unknown) {
+export async function askTemporaryTutor(input: unknown, _ownerId?: string, signal?: AbortSignal) {
   const { prompt, answerMode } = tutorInputSchema.parse(input);
   const mode = tutorAnswerMode(prompt, answerMode),
-    provider = mode === "detailed" ? "FreeGG" : "Gemini";
+    provider = mode === "detailed" ? "Groq / FreeGG" : "Gemini";
   try {
     const configured =
       mode === "detailed" ? getConfiguredLongTutor() : getConfiguredTutorGemini(true);
-    return {
-      notebook: notebookSchema.parse(
+    const answer = await withProviderSelection(async () =>
+      notebookSchema.parse(
         await configured.generate(prompt, "detailed_notes", {
           task: "tutor",
-          ...(mode === "detailed" ? { answerLength: "detailed" as const } : {}),
+          ...(mode === "detailed" ? { answerLength: "detailed" as const, signal } : {}),
           preferences: {
             notesStyle: "classroom",
             tone: "academic",
@@ -271,8 +297,11 @@ export async function askTemporaryTutor(input: unknown) {
           sourceLanguage: detectSourceLanguage(prompt),
         }),
       ),
+    );
+    return {
+      notebook: answer.value,
       cached: false,
-      provider,
+      provider: mode === "detailed" ? (answer.provider === "groq" ? "Groq" : "FreeGG") : provider,
       answerMode: mode,
     };
   } catch (error) {
@@ -294,9 +323,9 @@ export async function askTemporaryTutor(input: unknown) {
     };
     const message =
       mode === "detailed"
-        ? failure.code === "GEMINI_NOT_CONFIGURED"
-          ? "Detailed answers need FREEGG_API_KEY configured on the backend."
-          : "FreeGG could not complete this detailed answer. Please retry, or choose Quick for a shorter Gemini answer."
+        ? failure.code.startsWith("AI_")
+          ? failure.message
+          : "The study AI could not complete this detailed answer. Please retry, or choose Quick for a shorter Gemini answer."
         : (messages[failure.code] ?? "Gemini could not be reached right now. Please try again.");
     throw new AppError(message, { code: failure.code, statusCode: failure.statusCode });
   }
