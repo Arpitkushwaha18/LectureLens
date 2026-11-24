@@ -8,8 +8,8 @@ const cookieName = "ll_gallery_admin";
 const cookieOptions = () =>
   ({
     httpOnly: true,
-    secure: env.isProduction,
-    sameSite: env.SESSION_SAME_SITE,
+    secure: env.isProduction || env.SESSION_SAME_SITE === "none",
+    sameSite: env.isProduction ? "none" : env.SESSION_SAME_SITE,
     path: "/api/v1/gallery/admin",
   }) as const;
 function secret() {
