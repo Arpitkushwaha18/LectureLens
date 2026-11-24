@@ -1,5 +1,11 @@
 # LectureLens engineering audit
 
+## Handwritten export font clarification — November 24
+
+- User clarified that exported PDFs should be handwritten, not match the website's reading fonts. Print-only overrides now explicitly select **Kalam** body/diagram text and **Caveat** headings/captions. Website Inter/Fraunces typography remains unchanged; mathematical formulas keep the full STIX font.
+- The backend embeds both handwriting font weights locally, and the browser Print / Save as PDF action preloads those exact print-only faces. Regression checks distinguish screen versus print fonts and verify actual Kalam/Caveat names in both downloaded and browser-printed PDF files. This supersedes the matching-font decision immediately below; no provider, storage, deployment or unrelated page changes are included.
+- Verification: **314 backend tests**, frontend build, both linters and the complete browser workflow pass, including a real six-page handwritten PDF. Logs: `.cache/handwritten-export-*.log`; PDFs: `frontend/.cache/e2e/notebook-export.pdf` and `frontend/.cache/e2e/browser-print.pdf`. Hosted output still requires deploying the changed backend/frontend.
+
 ## Matching screen/print/export fonts and stale hosted backend — November 24 follow-up
 
 - Rechecked the deployed Vercel-origin `/workspace/export` with a tiny synthetic document: the live Render response remains HTTP 503 and still contains the **old** “Install the local Chromium browser” error text. The current code does not emit that message, identifying a stale backend deployment; no further AI call or hosting change was made. Render must deploy the updated backend, independently of Vercel.

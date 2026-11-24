@@ -36,6 +36,10 @@ export async function notebookCss() {
   const fontSheets = [
     "@fontsource-variable/inter/index.css",
     "@fontsource-variable/fraunces/index.css",
+    "@fontsource/kalam/400.css",
+    "@fontsource/kalam/700.css",
+    "@fontsource/caveat/400.css",
+    "@fontsource/caveat/700.css",
   ];
   for (const sheet of fontSheets) {
     const path = require.resolve(sheet);

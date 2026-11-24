@@ -307,7 +307,7 @@
     padding: 12px;
   }
 }
-/* Share reading typography between the screen, downloaded PDF and browser print. */
+/* Clean website reading styles; the print overrides below use handwriting fonts. */
 @media all {
   .study-notebook {
     background: #fffdf8;
@@ -404,14 +404,32 @@
     print-color-adjust: exact !important;
   }
   .study-notebook {
-    font-size: 15px;
-    line-height: 1.85;
+    font-family: "Kalam", cursive;
+    font-size: 16px;
+    line-height: 1.75;
     padding: 24px 20px;
     box-shadow: none;
     border: 0;
     background-image: none;
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
+  }
+  .study-notebook h1,
+  .study-notebook h2,
+  .study-notebook h3,
+  .notebook-table figcaption,
+  .notebook-graph figcaption {
+    font-family: "Caveat", cursive;
+  }
+  .notebook-formula,
+  .notebook-graph svg {
+    font-family: "Kalam", cursive;
+  }
+  .notebook-formula .formula-label {
+    font-family: "Caveat", cursive;
+    font-size: 22px;
+    text-transform: none;
+    letter-spacing: normal;
   }
   .material-section {
     break-before: page;

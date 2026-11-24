@@ -23,7 +23,7 @@ Supply gallery/provider credentials through the dashboard. Set `FRONTEND_ORIGIN`
 
 Vercel uses `vercel.json` and only `VITE_API_BASE_URL=https://YOUR-API/api/v1`. SPA routes include `/admin`, `/gallery`, `/assistant` and `/ask`. No browser Supabase key is required.
 
-If `/workspace/export` still responds with “Install the local Chromium browser with npx playwright install chromium”, Render is serving the older backend. Deploy the latest backend commit on Render (and check its build/start commands above); a Vercel-only deployment cannot update that endpoint. The updated exporter embeds the same Inter/Fraunces/STIX math fonts used by the website, and browser printing shares those typefaces instead of switching to handwriting fonts.
+If `/workspace/export` still responds with “Install the local Chromium browser with npx playwright install chromium”, Render is serving the older backend. Deploy the latest backend commit on Render (and check its build/start commands above); a Vercel-only deployment cannot update that endpoint. PDF exports and browser printing use embedded Kalam handwriting for body text and Caveat for headings, with STIX for readable math. Website notes retain their clean Inter/Fraunces typography.
 
 For unrelated Vercel/Render domains, use production HTTPS with `SESSION_SAME_SITE=none` for the **admin** cookie. Some browsers still block third-party cookies; use frontend/API subdomains under one site or a reviewed same-site proxy if admin login fails. Public gallery/study/Ask require no cookie and are unaffected by that restriction.
 

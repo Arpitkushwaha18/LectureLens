@@ -176,7 +176,11 @@ try {
       heading: getComputedStyle(node.querySelector("h1")).fontFamily,
       formula: getComputedStyle(node.querySelector("math")).fontFamily,
     }));
-  assert.deepEqual(printFonts, screenFonts);
+  assert.match(screenFonts.body, /Inter/);
+  assert.match(screenFonts.heading, /Fraunces/);
+  assert.match(printFonts.body, /Kalam/);
+  assert.match(printFonts.heading, /Caveat/);
+  assert.equal(printFonts.formula, screenFonts.formula);
   await page.pdf({ path: ".cache/e2e/browser-print.pdf", format: "A4", printBackground: true });
   await page.emulateMedia({ media: "screen" });
   const download = page.waitForEvent("download");
@@ -184,8 +188,8 @@ try {
   await (await download).saveAs(".cache/e2e/notebook-export.pdf");
   for (const file of [".cache/e2e/notebook-export.pdf", ".cache/e2e/browser-print.pdf"]) {
     const bytes = await readFile(file);
-    assert.match(bytes.toString("latin1"), /Inter/);
-    assert.match(bytes.toString("latin1"), /Fraunces/);
+    assert.match(bytes.toString("latin1"), /Kalam/);
+    assert.match(bytes.toString("latin1"), /Caveat/);
   }
   const exported = await extractDocument(
     await readFile(".cache/e2e/notebook-export.pdf"),

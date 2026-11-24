@@ -24,8 +24,10 @@ export function NotebookResults({
     try {
       // Print-only content is normally hidden, so explicitly load its exact faces.
       await Promise.all([
-        document.fonts.load('400 15px "Inter Variable"'),
-        document.fonts.load('700 36px "Fraunces Variable"'),
+        document.fonts.load('400 16px "Kalam"'),
+        document.fonts.load('700 16px "Kalam"'),
+        document.fonts.load('400 24px "Caveat"'),
+        document.fonts.load('700 36px "Caveat"'),
         document.fonts.load('400 18px "STIX Two Math"'),
       ]);
       await document.fonts.ready;

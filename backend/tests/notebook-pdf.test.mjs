@@ -4,10 +4,12 @@ import { sanitizeNotebookHtml, notebookCss } from "../dist/services/notebook-pdf
 import { readFile } from "node:fs/promises";
 import { pdfBrowserOptions } from "../dist/services/pdf-browser.js";
 
-it("downloaded PDFs embed the same Inter/Fraunces fonts as the generated screen notes", async () => {
+it("downloaded PDFs embed handwriting fonts while preserving readable math", async () => {
   const css = await notebookCss();
   assert.match(css, /Inter Variable/);
   assert.match(css, /Fraunces Variable/);
+  assert.match(css, /font-family:\s*['"]Kalam['"]/);
+  assert.match(css, /font-family:\s*['"]Caveat['"]/);
   assert.match(css, /STIX Two Math/);
   assert.doesNotMatch(css, /@import|@media screen/);
   const urls = [...css.matchAll(/url\(([^)]+)\)/g)];
