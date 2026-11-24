@@ -15,6 +15,7 @@ export const notebookFixture = {
     { type: "definition", term: "Atomicity", text: "A transaction is all or nothing." },
     { type: "example", text: "If a transfer fails, neither account is partially updated." },
     { type: "formula", text: "Balance after transfer = balance before transfer − amount" },
+    { type: "formula", text: String.raw`\frac{x^2}{\sqrt{y}} = \sum_{i=1}^{n} i` },
     { type: "important", text: "Never publish partial writes." },
     { type: "exam_tip", text: "Distinguish atomicity from isolation." },
     {

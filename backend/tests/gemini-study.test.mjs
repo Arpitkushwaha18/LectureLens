@@ -41,6 +41,11 @@ it("study Gemini quotes source data, validates JSON and disables SDK retries", a
   assert.match(input.config.systemInstruction, /source-quality warnings.*limitations ONLY/);
   assert.match(input.config.systemInstruction, /Write correct standard concepts directly/);
   assert.match(input.config.systemInstruction, /Never claim a topic appeared in past exams/);
+  assert.match(
+    input.config.systemInstruction,
+    /Include diagram blocks where a source-supported process/,
+  );
+  assert.match(input.config.systemInstruction, /valid LaTeX/);
   assert.equal(JSON.parse(input.contents[0].parts[0].text).requestedOutput, "detailed_notes");
 });
 it("specialized outputs require actual flashcards, quiz, mindmap or question/answer blocks", async () => {

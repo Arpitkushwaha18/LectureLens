@@ -1,6 +1,30 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { sanitizeNotebookHtml } from "../dist/services/notebook-pdf.service.js";
+import { readFile } from "node:fs/promises";
+import { pdfBrowserOptions } from "../dist/services/pdf-browser.js";
+
+it("PDF builds carry notebook CSS and a local math font without needing frontend at runtime", async () => {
+  const css = await readFile(new URL("../dist/assets/notebook.css", import.meta.url), "utf8");
+  assert.match(css, /STIXTwoMath-Regular/);
+  const font = await readFile(new URL("../dist/assets/STIXTwoMath-Regular.woff2", import.meta.url));
+  assert.equal(font.subarray(0, 4).toString(), "wOF2");
+  assert.equal(font.length, 551908);
+  assert.match(css, /@media print/);
+  const options = await pdfBrowserOptions();
+  assert.equal(options.headless, true);
+  if (process.platform === "linux") assert.ok(options.executablePath);
+});
+it("PDF sanitizer preserves math fractions and routed SVG arrows, not executable math", () => {
+  const html = sanitizeNotebookHtml(
+    '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block" onload="alert(1)"><semantics><mrow><mfrac><mi>a</mi><msqrt><mi>b</mi></msqrt></mfrac></mrow><annotation encoding="application/x-tex">a/b</annotation></semantics></math><svg viewBox="0 0 400 200"><path d="M0,0 L10,10" stroke-width="2" stroke-linejoin="round" marker-end="url(#arrow)"/><script>bad()</script></svg>',
+  );
+  assert.match(html, /<mfrac>/);
+  assert.match(html, /<msqrt>/);
+  assert.match(html, /marker-end="url\(#arrow\)"/);
+  assert.match(html, /stroke-width="2"/);
+  assert.doesNotMatch(html, /script|onload|bad\(\)/);
+});
 it("PDF exports contain notes, not transcript warnings or exam disclaimers", () => {
   const clean = sanitizeNotebookHtml(
     '<article class="study-notebook"><h1>Sets</h1><p>A set ignores repeated entries; its cardinality counts distinct elements.</p></article><section class="notebook-limitations"><h2>Keep in mind</h2><ul><li>The transcript treats repeated entries as invalid.</li></ul></section><p class="notebook-disclaimer">Claims about past examination questions and guaranteed future questions</p><details class="source-review"><summary>Garbled symbols</summary><p>Source correction</p></details>',

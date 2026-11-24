@@ -2,7 +2,7 @@ services:
   - type: web
     name: lecturelens-api
     runtime: node
-    buildCommand: npm --prefix contracts ci && npm --prefix backend ci && npm --prefix backend run build && cd backend && npx playwright install --with-deps chromium
+    buildCommand: npm --prefix contracts ci && npm --prefix backend ci && npm --prefix backend run build
     startCommand: npm --prefix backend start
     healthCheckPath: /api/v1/health
     autoDeploy: false

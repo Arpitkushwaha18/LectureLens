@@ -17,7 +17,9 @@ Admin sessions are signed, one-hour HTTP-only cookies, not database sessions. Lo
 
 ## Hosting
 
-`render.yaml` describes a Node 24 backend with Chromium installed for export and automatic deployment disabled. Supply gallery/provider credentials through the dashboard. Set `FRONTEND_ORIGIN` to the exact frontend HTTPS origin and check the real proxy chain before setting `TRUST_PROXY_HOPS=1`.
+`render.yaml` describes a Node 24 backend with automatic deployment disabled. PDF export on Linux uses the pinned `@sparticuz/chromium` runtime dependency (including its native libraries), not a Playwright browser downloaded into Render's build-only cache. `npm --prefix backend run build` copies notebook CSS into `backend/dist/assets`; runtime no longer reads frontend source. For a Render service with the repository root as its Root Directory, the build command is `npm --prefix contracts ci && npm --prefix backend ci && npm --prefix backend run build`; start remains `npm --prefix backend start`. If the service was created manually, update its dashboard build command too—editing `render.yaml` alone does not update that service. Redeploy the backend after installing these dependencies; macOS development still uses `npx playwright install chromium`.
+
+Supply gallery/provider credentials through the dashboard. Set `FRONTEND_ORIGIN` to the exact frontend HTTPS origin and check the real proxy chain before setting `TRUST_PROXY_HOPS=1`.
 
 Vercel uses `vercel.json` and only `VITE_API_BASE_URL=https://YOUR-API/api/v1`. SPA routes include `/admin`, `/gallery`, `/assistant` and `/ask`. No browser Supabase key is required.
 

@@ -2,6 +2,13 @@
 @import "@fontsource/kalam/700.css";
 @import "@fontsource/caveat/400.css";
 @import "@fontsource/caveat/700.css";
+@font-face {
+  font-family: "STIX Two Math";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/STIXTwoMath-Regular.woff2") format("woff2");
+}
 
 .study-notebook {
   --notebook-line: 32px;
@@ -124,10 +131,26 @@
   font-family: "Kalam", cursive;
   font-weight: 700;
 }
-.notebook-formula span {
+.notebook-formula .formula-label {
   display: block;
   font-family: "Caveat", cursive;
   font-size: 26px;
+}
+.formula-math {
+  overflow-x: auto;
+  padding: 8px 0;
+  font-size: 1.2em;
+  font-weight: 400;
+  white-space: normal;
+}
+.formula-math math {
+  font-family: "STIX Two Math", "Cambria Math", math;
+}
+.notebook-formula .formula-text {
+  margin: 4px 0 0;
+}
+.graph-scroll {
+  overflow-x: auto;
 }
 .notebook-table figcaption,
 .notebook-graph figcaption {
@@ -169,10 +192,13 @@
   table-layout: auto;
 }
 .notebook-graph svg {
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   height: auto;
+  display: block;
+  margin: 0 auto;
   background: #fff9ebe6;
-  font-family: "Kalam", cursive;
+  font-family: Arial, sans-serif;
 }
 .notebook-flashcard {
   border-bottom: 1px dashed #b8a970;
@@ -324,7 +350,7 @@
     font-family: var(--font-sans), sans-serif;
     border-radius: 8px;
   }
-  .notebook-formula span {
+  .notebook-formula .formula-label {
     font-family: var(--font-sans), sans-serif;
     font-size: 11px;
     text-transform: uppercase;
@@ -422,6 +448,10 @@
   }
   .notebook-graph svg {
     max-height: 220mm;
+  }
+  .graph-scroll,
+  .formula-math {
+    overflow: visible;
   }
   .notebook-table table {
     table-layout: fixed;

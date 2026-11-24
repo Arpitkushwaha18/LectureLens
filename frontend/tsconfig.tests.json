@@ -9,6 +9,8 @@
     "types": ["node"]
   },
   "include": [
+    "src/features/notebook/math-format.ts",
+    "src/features/notebook/graph-layout.ts",
     "src/features/workspace/workspace-model.ts",
     "src/lib/supabase-env.ts",
     "src/features/workspace/notes-api.ts",

@@ -141,7 +141,24 @@ try {
   assert.equal(await sourceChecks.getAttribute("open"), null);
   assert.equal(await paper.locator(".notebook-limitations").count(), 0);
   assert.match(await paper.evaluate((node) => getComputedStyle(node).fontFamily), /Inter/);
+  assert.equal(await paper.locator("math mfrac").count(), 1);
+  assert.equal(await paper.locator("math msqrt").count(), 1);
+  assert.match(
+    await paper.locator("math").evaluate((node) => getComputedStyle(node).fontFamily),
+    /STIX Two Math/,
+  );
+  assert.ok((await paper.locator(".notebook-graph path[marker-end]").count()) > 0);
+  const arrowId = await paper.locator(".notebook-graph marker").first().getAttribute("id");
+  assert.ok(!arrowId.includes("«") && !arrowId.includes("»"));
   await mkdir(".cache/e2e", { recursive: true });
+  await paper
+    .locator(".notebook-formula")
+    .last()
+    .screenshot({ path: ".cache/e2e/notebook-math.png" });
+  await paper
+    .locator(".notebook-graph")
+    .first()
+    .screenshot({ path: ".cache/e2e/notebook-diagram.png" });
   await page.screenshot({ path: ".cache/e2e/notes-reading.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
@@ -156,11 +173,36 @@ try {
   );
   assert.ok(exported.pages.length >= 3);
   assert.match(exported.text, /FINAL SECTION/);
+  assert.match(exported.text, /Begin transaction/);
+  assert.match(exported.text, /Commit changes/);
   assert.doesNotMatch(
     exported.text,
     /Keep in mind|Isolated mocked-provider browser test|Not actual previous.year questions|Source checks/,
   );
   for (let i = 1; i <= 18; i++) assert.match(exported.text, new RegExp(`Extended section ${i}\\.`));
+  const exportEndpoint = "**/api/v1/workspace/export";
+  await page.route(exportEndpoint, (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: '{"error":{"code":"PDF_EXPORT_FAILED","message":"private server path must not be shown"}}',
+    }),
+  );
+  await page.getByRole("button", { name: "Export PDF", exact: true }).click();
+  await page.getByRole("button", { name: "Print / Save as PDF", exact: true }).waitFor();
+  assert.match(await page.getByRole("alert").textContent(), /server could not prepare/);
+  assert.doesNotMatch(await page.getByRole("alert").textContent(), /private server path/);
+  await page.unroute(exportEndpoint);
+  await page.route(exportEndpoint, (route) =>
+    route.fulfill({ status: 200, contentType: "application/pdf", body: "Not actually a PDF" }),
+  );
+  await page.getByRole("button", { name: "Export PDF", exact: true }).click();
+  await page
+    .getByText("The server did not return a valid PDF. Use Print / Save as PDF or retry.", {
+      exact: true,
+    })
+    .waitFor();
+  await page.unroute(exportEndpoint);
   const count = generations;
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("button", { name: "Export PDF", exact: true }).waitFor();

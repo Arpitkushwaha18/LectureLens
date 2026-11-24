@@ -32,16 +32,37 @@ export function NotebookResults({
         body: JSON.stringify({ html: root.innerHTML }),
         signal: AbortSignal.timeout(60000),
       });
-      if (!response.ok) throw new Error("PDF export failed");
-      const url = URL.createObjectURL(await response.blob()),
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        const code = body?.error?.code;
+        if (code === "PDF_BUSY" || response.status === 429)
+          throw new Error(
+            "PDF export is busy. Wait a moment and retry, or use Print / Save as PDF.",
+          );
+        if (code === "PDF_EXPORT_FAILED")
+          throw new Error(
+            "The server could not prepare the PDF. Use Print / Save as PDF, or retry after the backend is updated.",
+          );
+        throw new Error("PDF download is unavailable. Retry or use Print / Save as PDF.");
+      }
+      const blob = await response.blob();
+      if (
+        !response.headers.get("content-type")?.includes("application/pdf") ||
+        (await blob.slice(0, 5).text()) !== "%PDF-"
+      )
+        throw new Error("The server did not return a valid PDF. Use Print / Save as PDF or retry.");
+      const url = URL.createObjectURL(blob),
         link = document.createElement("a");
       link.href = url;
       link.download = "lecturelens-notebook.pdf";
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch {
+    } catch (failure) {
       setError(
-        "PDF download is unavailable. Please retry. You can also use your browser's Print → Save as PDF.",
+        failure instanceof Error &&
+          (failure.message.startsWith("PDF") || failure.message.startsWith("The server"))
+          ? failure.message
+          : "PDF download is unavailable. Please retry or use Print / Save as PDF.",
       );
     } finally {
       setPrinting(false);
@@ -68,7 +89,16 @@ export function NotebookResults({
       <p className="mb-4 text-xs text-ink-muted">
         Download an A4 PDF with all selected materials, diagrams and answers.
       </p>
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <p role="alert" className="text-sm">
+            {error}
+          </p>
+          <Button variant="secondary" onClick={() => window.print()}>
+            Print / Save as PDF
+          </Button>
+        </div>
+      ) : null}
       <div className="resource-overview" role="tablist" aria-label="Learning resources">
         {result.materials.map((m) => (
           <button
