@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { spawnSync } from "node:child_process";
-import Groq from "groq-sdk";
 import {
   createProviderManager,
   withProviderSelection,
 } from "../dist/modules/ai/provider-manager.js";
-import { groqProvider } from "../dist/modules/ai/groq-client.js";
+import { openRouterProvider } from "../dist/modules/ai/openrouter-client.js";
 import { freeggTransport } from "../dist/modules/ai/freegg-client.js";
 import { envSchema } from "../dist/config/env-schema.js";
+import { notebookSchema } from "@lecturelens/contracts";
+import { geminiResponseSchema } from "../dist/modules/ai/gemini-schema.js";
+import {
+  strictProviderSchema,
+  restoreOptionalFields,
+} from "../dist/modules/ai/structured-schema.js";
 
 const notebook = {
   schemaVersion: 2,
@@ -38,7 +43,7 @@ const provider = (id, run = async () => output) => ({
   generateContent: run,
 });
 const options = (providers, extra = {}) => ({
-  primary: "groq",
+  primary: "openrouter",
   fallback: "freegg",
   providers,
   concurrency: 1,
@@ -52,12 +57,12 @@ const options = (providers, extra = {}) => ({
   ...extra,
 });
 const noWait = { wait: async () => {}, random: () => 0 };
-const groq = (fetch) =>
-  groqProvider(
+const openrouter = (fetch) =>
+  openRouterProvider(
     {
-      key: "synthetic-groq-key",
-      model: "openai/gpt-oss-120b",
-      contextTokens: 131072,
+      key: "synthetic-openrouter-key",
+      model: "nvidia/nemotron-3.5-super-vl:free",
+      contextTokens: 1000000,
       outputTokens: 65536,
       timeoutMs: 1000,
     },
@@ -80,27 +85,30 @@ function success() {
     { headers: { "content-type": "application/json" } },
   );
 }
-it("official Groq SDK sends server-side system/user messages, model, JSON format and bounded output without SDK retries", async () => {
+it("OpenRouter sends server-side system/user messages, model, JSON format and bounded output without SDK retries", async () => {
   let calls = 0;
-  const primary = groq(async (url, init) => {
+  const primary = openrouter(async (url, init) => {
     calls++;
-    assert.equal(String(url), "https://api.groq.com/openai/v1/chat/completions");
+    assert.equal(String(url), "https://openrouter.ai/api/v1/chat/completions");
     const headers = new Headers(init.headers);
-    assert.equal(headers.get("authorization"), "Bearer synthetic-groq-key");
+    assert.equal(headers.get("authorization"), "Bearer synthetic-openrouter-key");
+    assert.equal(headers.get("x-title"), "LectureLens");
     const body = JSON.parse(init.body);
-    assert.equal(body.model, "openai/gpt-oss-120b");
+    assert.equal(body.model, "nvidia/nemotron-3.5-super-vl:free");
     assert.deepEqual(
       body.messages.map((m) => m.role),
       ["system", "user"],
     );
-    assert.equal(body.max_completion_tokens, 1024);
+    assert.equal(body.max_tokens, 1024);
     assert.equal(body.temperature, 0.2);
     assert.deepEqual(body.response_format, { type: "json_object" });
+    assert.deepEqual(body.provider, { require_parameters: true });
+    assert.equal(body.stream, false);
     return success();
   });
   const manager = createProviderManager(
     options({
-      groq: primary,
+      openrouter: primary,
       freegg: provider("freegg", () => {
         throw new Error("must not fallback");
       }),
@@ -109,9 +117,163 @@ it("official Groq SDK sends server-side system/user messages, model, JSON format
   );
   const selected = await withProviderSelection(() => manager.generateContent(input));
   assert.equal(selected.value.text, output.text);
-  assert.equal(selected.provider, "groq");
+  assert.equal(selected.provider, "openrouter");
   assert.equal(calls, 1);
-  assert.equal(manager.snapshot().providers.groq.inputTokens, 42);
+  assert.equal(manager.snapshot().providers.openrouter.inputTokens, 42);
+});
+it("OpenRouter uses strict schema decoding and restores only nullable optional graph labels", async () => {
+  const schema = geminiResponseSchema(notebookSchema);
+  const material = {
+    ...notebook,
+    blocks: [
+      {
+        type: "diagram",
+        title: "Flow",
+        nodes: [
+          { id: "a", label: "Begin" },
+          { id: "b", label: "End" },
+        ],
+        edges: [{ from: "a", to: "b", label: null }],
+      },
+    ],
+  };
+  const primary = openrouter(async (_url, init) => {
+    const body = JSON.parse(init.body);
+    assert.equal(body.response_format.type, "json_schema");
+    assert.equal(body.response_format.json_schema.strict, true);
+    assert.equal(body.response_format.json_schema.schema.properties.title.minLength, 1);
+    assert.equal(body.response_format.json_schema.schema.properties.title.maxLength, 180);
+    assert.equal(body.response_format.json_schema.schema.properties.blocks.maxItems, 160);
+    function check(value) {
+      if (!value || typeof value !== "object") return;
+      if (value.type === "object") {
+        assert.equal(value.additionalProperties, false);
+        assert.deepEqual(value.required, Object.keys(value.properties));
+      }
+      for (const child of Object.values(value))
+        if (Array.isArray(child)) child.forEach(check);
+        else check(child);
+    }
+    check(body.response_format.json_schema.schema);
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(material) }, finish_reason: "stop" }],
+      }),
+      { headers: { "content-type": "application/json" } },
+    );
+  });
+  const response = await primary.generateContent({
+    ...input,
+    config: { ...input.config, responseJsonSchema: schema },
+  });
+  const restored = JSON.parse(response.text);
+  assert.equal("label" in restored.blocks[0].edges[0], false);
+  assert.ok(notebookSchema.safeParse(restored).success);
+  assert.deepEqual(strictProviderSchema(schema), strictProviderSchema(schema));
+  assert.equal(
+    schema.properties.blocks.items.anyOf
+      .find((b) => b.properties.type.enum.includes("diagram"))
+      .properties.edges.items.required.includes("label"),
+    false,
+  );
+  const invalid = {
+    ...material,
+    title: null,
+    unknown: "never silently removed",
+    blocks: [{ type: "diagram", title: "Flow", nodes: [{ id: "a", label: null }], edges: [] }],
+  };
+  const kept = restoreOptionalFields(invalid, schema);
+  assert.equal(kept.title, null);
+  assert.equal(kept.unknown, "never silently removed");
+  assert.equal(kept.blocks[0].nodes[0].label, null);
+  assert.equal(notebookSchema.safeParse(kept).success, false);
+  const hostile = restoreOptionalFields(JSON.parse('{"__proto__":{"polluted":true}}'), schema);
+  assert.ok(Object.hasOwn(hostile, "__proto__"));
+  assert.equal({}.polluted, undefined);
+});
+it("requests exceeding the configured OpenRouter context never dispatch or fall back", async () => {
+  let calls = 0;
+  const primary = openRouterProvider(
+    {
+      key: "synthetic-key",
+      model: "nvidia/nemotron-3.5-super-vl:free",
+      contextTokens: 1024,
+      outputTokens: 65536,
+      timeoutMs: 1000,
+    },
+    async () => {
+      calls++;
+      throw new Error("must not send oversized request");
+    },
+  );
+  const manager = createProviderManager(
+    options({ openrouter: primary, freegg: provider("freegg") }),
+    noWait,
+  );
+  await assert.rejects(
+    manager.generateContent(input),
+    (e) => e.code === "AI_REQUEST_INVALID" && e.retryable === false,
+  );
+  assert.equal(calls, 0);
+});
+it("the final provider can honor one minute Retry-After within the configured bounded wait", async () => {
+  let time = 0,
+    primaryCalls = 0,
+    fallbackCalls = 0;
+  const waits = [];
+  const manager = createProviderManager(
+    options(
+      {
+        openrouter: provider("openrouter", async () => {
+          primaryCalls++;
+          throw { status: 429, headers: new Headers({ "retry-after": "120" }) };
+        }),
+        freegg: provider("freegg", async () => {
+          fallbackCalls++;
+          if (fallbackCalls === 1)
+            throw { status: 429, headers: new Headers({ "retry-after": "60" }) };
+          return output;
+        }),
+      },
+      { maxRetryWaitMs: 60000 },
+    ),
+    {
+      now: () => time,
+      random: () => 0,
+      wait: async (ms) => {
+        waits.push(ms);
+        time += ms;
+      },
+    },
+  );
+  await manager.generateContent(input);
+  assert.equal(primaryCalls, 1);
+  assert.equal(fallbackCalls, 2);
+  assert.ok(waits.includes(60000));
+});
+it("providers keep independent requested output ceilings", async () => {
+  const limits = [];
+  const manager = createProviderManager(
+    options(
+      {
+        openrouter: provider("openrouter", async (input) => {
+          limits.push(["openrouter", input.config.maxOutputTokens]);
+          throw { status: 429 };
+        }),
+        freegg: provider("freegg", async (input) => {
+          limits.push(["freegg", input.config.maxOutputTokens]);
+          return output;
+        }),
+      },
+      { openrouterOutputTokens: 8192, freeggOutputTokens: 16384 },
+    ),
+    noWait,
+  );
+  await manager.generateContent({ ...input, config: { ...input.config, maxOutputTokens: 16384 } });
+  assert.deepEqual(limits, [
+    ["openrouter", 8192],
+    ["freegg", 16384],
+  ]);
 });
 it("FreeGG uses its documented Responses contract and configured HTTPS base, including usage", async () => {
   const transport = freeggTransport(
@@ -121,7 +283,7 @@ it("FreeGG uses its documented Responses contract and configured HTTPS base, inc
       const body = JSON.parse(init.body);
       assert.equal(body.store, false);
       assert.equal(body.stream, false);
-      assert.equal(body.temperature, 0.2);
+      assert.equal("temperature" in body, false, "GPT reasoning models reject sampling controls");
       return new Response(
         JSON.stringify({
           status: "completed",
@@ -149,20 +311,20 @@ it("FreeGG uses its documented Responses contract and configured HTTPS base, inc
   assert.equal(manager.snapshot().providers.freegg.outputTokens, 20);
 });
 for (const status of [429, 500, 503])
-  it(`Groq HTTP ${status} falls back to FreeGG once; raw errors and secrets never enter logs`, async () => {
+  it(`OpenRouter HTTP ${status} falls back to FreeGG once; raw errors and secrets never enter logs`, async () => {
     let calls = 0,
       fallback = 0;
     const logs = [];
-    const primary = groq(async () => {
+    const primary = openrouter(async () => {
       calls++;
       return new Response(
-        JSON.stringify({ error: { message: "PRIVATE_TRANSCRIPT synthetic-groq-key" } }),
+        JSON.stringify({ error: { message: "PRIVATE_TRANSCRIPT synthetic-openrouter-key" } }),
         { status, headers: { "retry-after": "120" } },
       );
     });
     const manager = createProviderManager(
       options({
-        groq: primary,
+        openrouter: primary,
         freegg: provider("freegg", async () => {
           fallback++;
           return output;
@@ -177,21 +339,24 @@ for (const status of [429, 500, 503])
     assert.equal(fallback, 1);
     assert.doesNotMatch(
       JSON.stringify(logs),
-      /PRIVATE_TRANSCRIPT|synthetic-groq-key|educational question/,
+      /PRIVATE_TRANSCRIPT|synthetic-openrouter-key|educational question/,
     );
     await manager.generateContent(input);
     assert.equal(calls, 1);
     assert.equal(fallback, 2); // primary cooldown respects Retry-After
   });
-for (const failure of [new Groq.APIConnectionTimeoutError({}), new Groq.APIConnectionError({})])
-  it(`Groq ${failure.constructor.name} has one bounded FreeGG fallback, not a same-key replay`, async () => {
+for (const [name, failure] of [
+  ["TimeoutError", Object.assign(new Error("timed out"), { name: "TimeoutError" })],
+  ["TypeError", new TypeError("fetch failed")],
+])
+  it(`OpenRouter ${name} has one bounded FreeGG fallback, not a same-key replay`, async () => {
     let calls = 0;
-    const primary = groq(async () => {
+    const primary = openrouter(async () => {
       calls++;
       throw failure;
     });
     const manager = createProviderManager(
-      options({ groq: primary, freegg: provider("freegg") }),
+      options({ openrouter: primary, freegg: provider("freegg") }),
       noWait,
     );
     assert.equal((await manager.generateContent(input)).text, output.text);
@@ -204,7 +369,7 @@ it("both providers exhausted return a controlled error with no uncontrolled loop
     throw { status: 429, headers: new Headers({ "retry-after": "120" }), message: "SECRET" };
   };
   const manager = createProviderManager(
-    options({ groq: provider("groq", run), freegg: provider("freegg", run) }),
+    options({ openrouter: provider("openrouter", run), freegg: provider("freegg", run) }),
     noWait,
   );
   await assert.rejects(
@@ -215,11 +380,13 @@ it("both providers exhausted return a controlled error with no uncontrolled loop
   assert.equal(calls, 2);
 });
 for (const status of [400, 401, 403, 404, 422])
-  it(`Groq HTTP ${status} never triggers fallback or retries`, async () => {
+  it(`OpenRouter HTTP ${status} never triggers fallback or retries`, async () => {
     let fallback = 0;
     const manager = createProviderManager(
       options({
-        groq: groq(async () => new Response('{"error":{"message":"SECRET"}}', { status })),
+        openrouter: openrouter(
+          async () => new Response('{"error":{"message":"SECRET"}}', { status }),
+        ),
         freegg: provider("freegg", async () => {
           fallback++;
           return output;
@@ -233,14 +400,14 @@ for (const status of [400, 401, 403, 404, 422])
     );
     assert.equal(fallback, 0);
   });
-it("Groq incomplete and empty completions never return successful partial notes", async () => {
+it("OpenRouter incomplete and empty completions never return successful partial notes", async () => {
   for (const [finish, content] of [
     ["length", "partial"],
     ["stop", ""],
   ]) {
     const manager = createProviderManager(
       options({
-        groq: groq(
+        openrouter: openrouter(
           async () =>
             new Response(
               JSON.stringify({ choices: [{ message: { content }, finish_reason: finish }] }),
@@ -257,19 +424,19 @@ it("Groq incomplete and empty completions never return successful partial notes"
   }
 });
 it("missing secondary key does not prevent primary success; missing primary fails closed", async () => {
-  const manager = createProviderManager(options({ groq: provider("groq") }), noWait);
+  const manager = createProviderManager(options({ openrouter: provider("openrouter") }), noWait);
   assert.equal((await manager.generateContent(input)).text, output.text);
   await assert.rejects(
     createProviderManager(options({ freegg: provider("freegg") }), noWait).generateContent(input),
     (e) => e.code === "AI_CONFIGURATION",
   );
 });
-it("original PDFs route directly to FreeGG, never to text-only Groq", async () => {
+it("original PDFs route directly to FreeGG, never to text-only OpenRouter", async () => {
   let primary = 0,
     fallback = 0;
   const manager = createProviderManager(
     options({
-      groq: provider("groq", async () => {
+      openrouter: provider("openrouter", async () => {
         primary++;
         return output;
       }),
@@ -295,7 +462,7 @@ it("bounded backoff respects Retry-After and retries only the failed request", a
   const manager = createProviderManager(
     options(
       {
-        groq: provider("groq", async () => {
+        openrouter: provider("openrouter", async () => {
           if (++calls === 1) throw { status: 503, headers: new Headers({ "retry-after": "2" }) };
           return output;
         }),
@@ -321,7 +488,7 @@ it("queue bounds, waiting cancellation and client disconnect prevent extra dispa
   const manager = createProviderManager(
     options(
       {
-        groq: provider("groq", () => {
+        openrouter: provider("openrouter", () => {
           calls++;
           return new Promise((resolve) => {
             finish = resolve;
@@ -349,33 +516,43 @@ it("queue bounds, waiting cancellation and client disconnect prevent extra dispa
   assert.equal(manager.snapshot().queued, 0);
 });
 it("environment validates booleans/providers/models/URL and does not require secondary credentials", () => {
-  const parsed = envSchema.parse({ GROQ_API_KEY: "synthetic-key" });
-  assert.equal(parsed.AI_PROVIDER, "groq");
-  assert.equal(parsed.GROQ_MODEL, "openai/gpt-oss-120b");
+  const parsed = envSchema.parse({ OPENROUTER_API_KEY: "synthetic-key" });
+  assert.equal(parsed.AI_PROVIDER, "openrouter");
+  assert.equal(parsed.OPENROUTER_MODEL, "nvidia/nemotron-3.5-super-vl:free");
   assert.equal(parsed.FREEGG_API_KEY, undefined);
+  assert.equal(
+    envSchema.parse({ AI_PROVIDER: "gemini", AI_PRIMARY_PROVIDER: "" }).AI_PRIMARY_PROVIDER,
+    undefined,
+  );
   assert.equal(
     envSchema.safeParse({
       AI_PROVIDER: "gemini",
-      AI_PRIMARY_PROVIDER: "groq",
-      GROQ_API_KEY: "synthetic-key",
+      AI_PRIMARY_PROVIDER: "openrouter",
+      OPENROUTER_API_KEY: "synthetic-key",
       GEMINI_API_KEY: "synthetic_key_12345678",
     }).success,
     true,
   );
   assert.equal(
     envSchema.parse({
-      GROQ_API_KEY: "synthetic-key",
+      OPENROUTER_API_KEY: "synthetic-key",
       FREEGG_API_KEY: "",
       FREEGG_BASE_URL: "",
       FREEGG_MODEL: "",
     }).FREEGG_BASE_URL,
     "https://freegg.app/v1",
   );
+  assert.equal(
+    envSchema.parse({ AI_PRIMARY_PROVIDER: "groq" }).AI_PRIMARY_PROVIDER,
+    "openrouter",
+    "legacy groq selection maps to the replacement route",
+  );
   for (const value of [
     { AI_PRIMARY_PROVIDER: "invalid" },
     { AI_FALLBACK_PROVIDER: "gemini" },
-    { GROQ_ENABLED: "yes" },
-    { GROQ_API_KEY: "Bearer secret" },
+    { OPENROUTER_ENABLED: "yes" },
+    { OPENROUTER_API_KEY: "Bearer secret" },
+    { OPENROUTER_MODEL: "not a model" },
     { FREEGG_BASE_URL: "http://freegg.app/v1" },
     { FREEGG_BASE_URL: "https://key:secret@freegg.app/v1" },
     { FREEGG_BASE_URL: "https://127.0.0.1/v1" },
@@ -393,7 +570,7 @@ it("concurrent waiting dispatch rechecks a new provider cooldown before sending"
   const manager = createProviderManager(
     options(
       {
-        groq: provider("groq", () => {
+        openrouter: provider("openrouter", () => {
           calls++;
           return new Promise((_, reject) => {
             rejectPrimary = reject;
@@ -429,7 +606,7 @@ it("non-numeric upstream usage cannot expose echoed secrets through metrics logs
   const logs = [];
   const manager = createProviderManager(
     options({
-      groq: provider("groq", async () => ({
+      openrouter: provider("openrouter", async () => ({
         ...output,
         usageMetadata: { promptTokenCount: "SECRET", candidatesTokenCount: -1 },
       })),
@@ -437,11 +614,11 @@ it("non-numeric upstream usage cannot expose echoed secrets through metrics logs
     { ...noWait, log: (event) => logs.push(event) },
   );
   await manager.generateContent(input);
-  assert.equal(manager.snapshot().providers.groq.inputTokens, 0);
-  assert.equal(manager.snapshot().providers.groq.outputTokens, 0);
+  assert.equal(manager.snapshot().providers.openrouter.inputTokens, 0);
+  assert.equal(manager.snapshot().providers.openrouter.outputTokens, 0);
   assert.doesNotMatch(JSON.stringify(logs), /SECRET/);
 });
-it("configured default missing Groq key returns configuration error without touching Gemini or networking", () => {
+it("configured default missing OpenRouter key returns configuration error without touching Gemini or networking", () => {
   const result = spawnSync(
     process.execPath,
     [
@@ -453,9 +630,9 @@ it("configured default missing Groq key returns configuration error without touc
       env: {
         ...process.env,
         NODE_ENV: "test",
-        AI_PROVIDER: "groq",
-        AI_PRIMARY_PROVIDER: "groq",
-        GROQ_API_KEY: "",
+        AI_PROVIDER: "openrouter",
+        AI_PRIMARY_PROVIDER: "openrouter",
+        OPENROUTER_API_KEY: "",
         FREEGG_API_KEY: "",
         GEMINI_API_KEY: "synthetic_key_12345678",
         GEMINI_BACKUP_API_KEY: "",

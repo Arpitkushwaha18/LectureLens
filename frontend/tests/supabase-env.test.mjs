@@ -9,15 +9,15 @@ const configured = {
   VITE_SUPABASE_PUBLISHABLE_KEY: `sb_publishable_${"x".repeat(24)}`,
 };
 describe("B2 browser environment validation", () => {
-  it("unprefixed backend Groq/FreeGG keys never enter a real frontend production bundle", async () => {
-    const groq = "synthetic_groq_backend_only_never_public",
+  it("unprefixed backend OpenRouter/FreeGG keys never enter a real frontend production bundle", async () => {
+    const openrouter = "synthetic_openrouter_backend_only_never_public",
       freegg = "synthetic_freegg_backend_only_never_public";
     const result = spawnSync(
       process.execPath,
       ["node_modules/vite/bin/vite.js", "build", "--outDir", ".cache/provider-secret-build"],
       {
         cwd: new URL("..", import.meta.url),
-        env: { ...process.env, GROQ_API_KEY: groq, FREEGG_API_KEY: freegg },
+        env: { ...process.env, OPENROUTER_API_KEY: openrouter, FREEGG_API_KEY: freegg },
         encoding: "utf8",
       },
     );
@@ -26,13 +26,13 @@ describe("B2 browser environment validation", () => {
     for (const file of await readdir(directory)) {
       if (!/\.(js|css)$/.test(file)) continue;
       const content = await readFile(new URL(file, directory), "utf8");
-      assert.ok(!content.includes(groq));
+      assert.ok(!content.includes(openrouter));
       assert.ok(!content.includes(freegg));
     }
-    assert.ok(!`${result.stdout}${result.stderr}`.includes(groq));
+    assert.ok(!`${result.stdout}${result.stderr}`.includes(openrouter));
     assert.ok(!`${result.stdout}${result.stderr}`.includes(freegg));
   });
-  for (const name of ["VITE_GROQ_API_KEY", "VITE_FREEGG_API_KEY"]) {
+  for (const name of ["VITE_OPENROUTER_API_KEY", "VITE_FREEGG_API_KEY"]) {
     it(`blocks ${name} before production bundling without exposing its value`, () => {
       const fixture = "synthetic_server_only_key_never_bundle";
       const result = spawnSync(process.execPath, ["node_modules/vite/bin/vite.js", "build"], {

@@ -1,8 +1,8 @@
 export const logRedaction = {
   paths: [
-    "GROQ_API_KEY",
+    "OPENROUTER_API_KEY",
     "FREEGG_API_KEY",
-    "*.GROQ_API_KEY",
+    "*.OPENROUTER_API_KEY",
     "*.FREEGG_API_KEY",
     "apiKey",
     "*.apiKey",

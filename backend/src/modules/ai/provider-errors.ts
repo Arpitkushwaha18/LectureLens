@@ -50,6 +50,13 @@ export function providerFailure(error: unknown): NotesGenerationError {
       false,
       422,
     );
+  if (status === 402)
+    return new NotesGenerationError(
+      "AI_CONFIGURATION",
+      "The AI provider account needs a positive credit balance. Contact the administrator.",
+      false,
+      503,
+    );
   if (status === 429 || code.endsWith("_QUOTA"))
     return retryableProviderError(
       "AI_QUOTA",

@@ -278,7 +278,7 @@ export function tutorAnswerMode(prompt: string, mode: "auto" | "quick" | "detail
 export async function askTemporaryTutor(input: unknown, _ownerId?: string, signal?: AbortSignal) {
   const { prompt, answerMode } = tutorInputSchema.parse(input);
   const mode = tutorAnswerMode(prompt, answerMode),
-    provider = mode === "detailed" ? "Groq / FreeGG" : "Gemini";
+    provider = mode === "detailed" ? "OpenRouter / FreeGG" : "Gemini";
   try {
     const configured =
       mode === "detailed" ? getConfiguredLongTutor() : getConfiguredTutorGemini(true);
@@ -301,7 +301,12 @@ export async function askTemporaryTutor(input: unknown, _ownerId?: string, signa
     return {
       notebook: answer.value,
       cached: false,
-      provider: mode === "detailed" ? (answer.provider === "groq" ? "Groq" : "FreeGG") : provider,
+      provider:
+        mode === "detailed"
+          ? answer.provider === "openrouter"
+            ? "OpenRouter"
+            : "FreeGG"
+          : provider,
       answerMode: mode,
     };
   } catch (error) {

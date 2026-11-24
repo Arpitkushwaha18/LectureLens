@@ -8,7 +8,7 @@ try {
       {
         provider: env.AI_PRIMARY_PROVIDER ?? env.AI_PROVIDER,
         fallback: env.AI_FALLBACK_PROVIDER,
-        groqConfigured: Boolean(env.GROQ_ENABLED && env.GROQ_API_KEY),
+        openrouterConfigured: Boolean(env.OPENROUTER_ENABLED && env.OPENROUTER_API_KEY),
         freeggConfigured: Boolean(env.FREEGG_ENABLED && env.FREEGG_API_KEY),
       },
       "AI routing configured; no startup generation request. Missing primary credentials produce a controlled request-time configuration error",

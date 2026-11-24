@@ -23,6 +23,8 @@ type Options = {
   retries: number;
   maxRetryWaitMs: number;
   maxOutputTokens: number;
+  openrouterOutputTokens?: number;
+  freeggOutputTokens?: number;
   temperature: number;
 };
 type Metrics = {
@@ -50,7 +52,7 @@ export function createProviderManager(options: Options, deps: Dependencies = {})
     });
   const health = new Map<ProviderId, { until: number; next: number }>();
   const metrics: Record<ProviderId, Metrics> = Object.fromEntries(
-    ["groq", "freegg"].map((id) => [
+    ["openrouter", "freegg"].map((id) => [
       id,
       {
         requests: 0,
@@ -185,7 +187,9 @@ export function createProviderManager(options: Options, deps: Dependencies = {})
                   temperature: options.temperature,
                   maxOutputTokens: Math.min(
                     input.config?.maxOutputTokens ?? options.maxOutputTokens,
-                    options.maxOutputTokens,
+                    provider.id === "freegg"
+                      ? (options.freeggOutputTokens ?? options.maxOutputTokens)
+                      : (options.openrouterOutputTokens ?? options.maxOutputTokens),
                   ),
                 },
               });

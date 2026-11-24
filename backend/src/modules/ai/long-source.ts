@@ -138,18 +138,28 @@ export function mergeNotebooks(
         502,
       );
   }
+  const limitations: string[] = [];
+  for (const limitation of new Set(notebooks.flatMap((notebook) => notebook.limitations))) {
+    const previous = limitations.at(-1);
+    if (previous && previous.length + limitation.length + 2 <= 1000)
+      limitations[limitations.length - 1] = `${previous}\n\n${limitation}`;
+    else limitations.push(limitation);
+  }
   const result = notebookSchema.safeParse({
     schemaVersion: 2,
     title: notebooks[0]?.title,
     blocks: selected,
-    limitations: [...new Set(notebooks.flatMap((n) => n.limitations))],
+    limitations,
   });
   if (!result.success)
-    throw new NotesGenerationError(
-      "AI_OUTPUT_LIMIT",
-      "The complete material exceeds the current notebook format limits. Try a smaller source; no incomplete notes were published.",
-      false,
-      422,
+    throw Object.assign(
+      new NotesGenerationError(
+        "AI_OUTPUT_LIMIT",
+        "The complete material exceeds the current notebook format limits. Try a smaller source; no incomplete notes were published.",
+        false,
+        422,
+      ),
+      { mergeCounts: { blocks: selected.length, limitations: limitations.length } },
     );
   notebookToResource(result.data, output);
   return result.data;
@@ -158,7 +168,13 @@ export function mergeNotebooks(
 type Generator = ReturnType<typeof createGeminiStudyGenerator>;
 export function createLongSourceGenerator(
   generate: Generator,
-  options: { chunkTokens: number; overlapTokens: number; maxChunks: number; timeoutMs: number },
+  options: {
+    chunkTokens: number;
+    overlapTokens: number;
+    maxChunks: number;
+    timeoutMs: number;
+    longChunkTokens?: number;
+  },
 ): Generator {
   return async (text, output, counts = {}) => {
     text = transcriptTextSchema.parse(text);
@@ -167,7 +183,13 @@ export function createLongSourceGenerator(
       : AbortSignal.timeout(options.timeoutMs);
     // Original PDFs must remain complete file inputs; never OCR or substitute their text preview.
     if (counts.pdf) return generate(text, output, { ...counts, signal });
-    const chunks = chunkSource(text, options.chunkTokens, options.overlapTokens, options.maxChunks);
+    // Many tiny calls cannot finish long lectures within the request deadline.
+    // Larger complete chunks are enabled only when a capable FreeGG route is configured.
+    const tokenLimit =
+      options.longChunkTokens && Math.ceil(countTokens(text) * 1.2) > options.chunkTokens * 8
+        ? Math.max(options.chunkTokens, options.longChunkTokens)
+        : options.chunkTokens;
+    const chunks = chunkSource(text, tokenLimit, options.overlapTokens, options.maxChunks);
     const results: Notebook[] = [];
     const completed = new Map<string, Notebook>(); // request-local only; released on return/error
     const total =

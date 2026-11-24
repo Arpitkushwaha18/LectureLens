@@ -307,21 +307,22 @@
     padding: 12px;
   }
 }
-/* Clean website reading styles; the print overrides below use handwriting fonts. */
+/* Study content keeps the handwritten look on screen as well as in the exported PDF.
+   Interface chrome (kicker, source line, limitations) stays sans for legibility. */
 @media all {
   .study-notebook {
     background: #fffdf8;
     border-radius: 12px;
     padding: clamp(20px, 4vw, 40px);
-    font-family: var(--font-sans), sans-serif;
-    font-size: 15px;
-    line-height: 1.85;
+    font-family: "Kalam", cursive;
+    font-size: clamp(17px, 1.6vw, 19px);
+    line-height: 1.75;
     color: #29384a;
   }
   .study-notebook h1,
   .study-notebook h2,
   .study-notebook h3 {
-    font-family: var(--font-serif), Georgia, serif;
+    font-family: "Caveat", cursive;
   }
   .notebook-heading {
     margin-bottom: 28px;
@@ -329,18 +330,18 @@
     border-bottom: 1px solid #e3d6b8;
   }
   .notebook-heading h1 {
-    font-size: clamp(26px, 4vw, 36px);
-    line-height: 1.25;
+    font-size: clamp(34px, 5vw, 46px);
+    line-height: 1.1;
   }
   .notebook-block {
     margin-bottom: 18px;
   }
   .notebook-section {
-    font-size: 24px;
+    font-size: 30px;
     margin: 28px 0 12px;
   }
   .notebook-chapter {
-    font-size: 28px;
+    font-size: 34px;
   }
   .notebook-sticky,
   .notebook-callout {
@@ -350,28 +351,31 @@
   }
   .notebook-sticky h3,
   .notebook-callout h3 {
-    font-size: 19px;
-    margin-bottom: 6px;
+    font-size: 26px;
+    margin-bottom: 4px;
   }
   .notebook-formula {
-    font-family: var(--font-sans), sans-serif;
+    font-family: "Kalam", cursive;
     border-radius: 8px;
   }
   .notebook-formula .formula-label {
-    font-family: var(--font-sans), sans-serif;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 6px;
+    font-family: "Caveat", cursive;
+    font-size: 22px;
+    text-transform: none;
+    letter-spacing: normal;
+    margin-bottom: 4px;
   }
   .notebook-table figcaption,
   .notebook-graph figcaption {
-    font-family: var(--font-serif), Georgia, serif;
-    font-size: 20px;
+    font-family: "Caveat", cursive;
+    font-size: 25px;
   }
   .notebook-table table {
-    font-size: 13px;
+    font-size: 15px;
     min-width: 420px;
+  }
+  .notebook-graph svg {
+    font-family: "Kalam", cursive;
   }
   .study-notebook li {
     margin-bottom: 6px;

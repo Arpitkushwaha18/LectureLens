@@ -56,16 +56,27 @@ export const envSchema = z
       .regex(/^gemini-[a-z0-9.-]{1,100}$/)
       .refine((model) => !model.endsWith("-latest"), "Use an explicit Gemini tutor model ID")
       .default("gemini-3.5-flash-lite"),
-    // Legacy override retained; new installations default to Groq. Quick Ask is independent.
-    AI_PROVIDER: z.enum(["gemini", "groq", "freegg"]).default("groq"),
-    AI_PRIMARY_PROVIDER: z.enum(["groq", "freegg"]).optional(),
-    AI_FALLBACK_PROVIDER: z.enum(["groq", "freegg", "none"]).default("freegg"),
-    GROQ_API_KEY: optionalValue,
-    GROQ_MODEL: z
+    // Legacy override retained; openrouter is the current default. "groq" is accepted
+    // only as a deprecated alias so existing deployments fail over to the new route safely.
+    AI_PROVIDER: z.preprocess(
+      (value) => (value === "groq" ? "openrouter" : value),
+      z.enum(["gemini", "openrouter", "freegg"]).default("openrouter"),
+    ),
+    AI_PRIMARY_PROVIDER: z.preprocess(
+      (value) =>
+        value === "" || value === undefined ? undefined : value === "groq" ? "openrouter" : value,
+      z.enum(["openrouter", "freegg"]).optional(),
+    ),
+    AI_FALLBACK_PROVIDER: z.preprocess(
+      (value) => (value === "groq" ? "openrouter" : value),
+      z.enum(["openrouter", "freegg", "none"]).default("freegg"),
+    ),
+    OPENROUTER_API_KEY: optionalValue,
+    OPENROUTER_MODEL: z
       .string()
-      .regex(/^[A-Za-z0-9._/-]{1,100}$/)
-      .default("openai/gpt-oss-120b"),
-    GROQ_ENABLED: z
+      .regex(/^[A-Za-z0-9._:/-]{1,120}$/)
+      .default("nvidia/nemotron-3.5-super-vl:free"),
+    OPENROUTER_ENABLED: z
       .enum(["true", "false"])
       .default("true")
       .transform((value) => value === "true"),
@@ -98,15 +109,17 @@ export const envSchema = z
     ),
     AI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(180000).default(120000),
     AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1024).max(65536).default(4096),
-    GROQ_CONTEXT_TOKENS: z.coerce.number().int().min(8192).max(131072).default(131072),
-    GROQ_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1024).max(65536).default(65536),
+    OPENROUTER_CONTEXT_TOKENS: z.coerce.number().int().min(8192).max(2_000_000).default(1_000_000),
+    OPENROUTER_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1024).max(262144).default(16384),
+    FREEGG_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1024).max(65536).default(16384),
     AI_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
     AI_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
     AI_MAX_QUEUE: z.coerce.number().int().min(0).max(32).default(8),
-    AI_MIN_REQUEST_INTERVAL_MS: z.coerce.number().int().min(0).max(60000).default(2000),
+    AI_MIN_REQUEST_INTERVAL_MS: z.coerce.number().int().min(0).max(60000).default(3000),
     AI_MAX_RETRIES: z.coerce.number().int().min(0).max(2).default(1),
-    AI_MAX_RETRY_WAIT_MS: z.coerce.number().int().min(0).max(30000).default(5000),
+    AI_MAX_RETRY_WAIT_MS: z.coerce.number().int().min(0).max(120000).default(60000),
     AI_CHUNK_TOKENS: z.coerce.number().int().min(1000).max(24000).default(2000),
+    AI_LONG_SOURCE_CHUNK_TOKENS: z.coerce.number().int().min(1000).max(24000).default(12000),
     AI_CHUNK_OVERLAP_TOKENS: z.coerce.number().int().min(0).max(1000).default(150),
     AI_MAX_CHUNKS: z.coerce.number().int().min(1).max(256).default(128),
     AI_JOB_TIMEOUT_MS: z.coerce.number().int().min(10000).max(540000).default(540000),
@@ -126,11 +139,14 @@ export const envSchema = z
     TRANSCRIPT_MAX_DURATION_SECONDS: z.coerce.number().int().min(1).max(18000).default(18000),
   })
   .superRefine((env, ctx) => {
-    if (env.GROQ_API_KEY && (env.GROQ_API_KEY.length > 4096 || /\s/.test(env.GROQ_API_KEY)))
+    if (
+      env.OPENROUTER_API_KEY &&
+      (env.OPENROUTER_API_KEY.length > 4096 || /\s/.test(env.OPENROUTER_API_KEY))
+    )
       ctx.addIssue({
         code: "custom",
-        path: ["GROQ_API_KEY"],
-        message: "Invalid Groq API key format",
+        path: ["OPENROUTER_API_KEY"],
+        message: "Invalid OpenRouter API key format",
       });
     if (env.AI_CHUNK_OVERLAP_TOKENS >= env.AI_CHUNK_TOKENS)
       ctx.addIssue({
@@ -138,10 +154,10 @@ export const envSchema = z
         path: ["AI_CHUNK_OVERLAP_TOKENS"],
         message: "Overlap must be smaller than chunk size",
       });
-    if (env.AI_CHUNK_TOKENS + env.AI_MAX_OUTPUT_TOKENS + 8192 > env.GROQ_CONTEXT_TOKENS)
+    if (env.AI_CHUNK_TOKENS + env.AI_MAX_OUTPUT_TOKENS + 8192 > env.OPENROUTER_CONTEXT_TOKENS)
       ctx.addIssue({
         code: "custom",
-        path: ["GROQ_CONTEXT_TOKENS"],
+        path: ["OPENROUTER_CONTEXT_TOKENS"],
         message: "Context must fit chunk, prompt reserve and output budget",
       });
     if (env.SESSION_SAME_SITE === "none" && env.NODE_ENV !== "production")

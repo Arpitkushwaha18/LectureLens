@@ -9,7 +9,7 @@ export function readSupabaseBrowserConfig(env: Record<string, unknown>): Supabas
     Object.entries(env).some(
       ([name, value]) =>
         name.startsWith("VITE_") &&
-        (/SECRET|SERVICE_ROLE|GROQ.*KEY|FREEGG.*KEY|GEMINI.*KEY|GOOGLE.*KEY|APIFY.*(?:TOKEN|KEY)|TRANSCRIPTFETCH/i.test(
+        (/SECRET|SERVICE_ROLE|OPENROUTER.*KEY|GROQ.*KEY|FREEGG.*KEY|GEMINI.*KEY|GOOGLE.*KEY|APIFY.*(?:TOKEN|KEY)|TRANSCRIPTFETCH/i.test(
           name,
         ) ||
           (typeof value === "string" && value.startsWith("sb_secret_"))),

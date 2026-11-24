@@ -1,6 +1,6 @@
 import { env } from "../../config/env.js";
 import { logger } from "../../lib/logger.js";
-import { groqProvider } from "./groq-client.js";
+import { openRouterProvider } from "./openrouter-client.js";
 import { freeggTransport } from "./freegg-client.js";
 import { createProviderManager } from "./provider-manager.js";
 import type { AiProvider } from "./provider-types.js";
@@ -8,13 +8,13 @@ let manager: ReturnType<typeof createProviderManager> | undefined;
 
 export function getConfiguredProvider() {
   if (!manager) {
-    const groq =
-      env.GROQ_ENABLED && env.GROQ_API_KEY
-        ? groqProvider({
-            key: env.GROQ_API_KEY,
-            model: env.GROQ_MODEL,
-            contextTokens: env.GROQ_CONTEXT_TOKENS,
-            outputTokens: env.GROQ_MAX_OUTPUT_TOKENS,
+    const openrouter =
+      env.OPENROUTER_ENABLED && env.OPENROUTER_API_KEY
+        ? openRouterProvider({
+            key: env.OPENROUTER_API_KEY,
+            model: env.OPENROUTER_MODEL,
+            contextTokens: env.OPENROUTER_CONTEXT_TOKENS,
+            outputTokens: env.OPENROUTER_MAX_OUTPUT_TOKENS,
             timeoutMs: env.AI_TIMEOUT_MS,
           })
         : undefined;
@@ -29,9 +29,10 @@ export function getConfiguredProvider() {
         : undefined;
     manager = createProviderManager(
       {
-        primary: env.AI_PRIMARY_PROVIDER ?? (env.AI_PROVIDER === "freegg" ? "freegg" : "groq"),
+        primary:
+          env.AI_PRIMARY_PROVIDER ?? (env.AI_PROVIDER === "freegg" ? "freegg" : "openrouter"),
         fallback: env.AI_FALLBACK_PROVIDER,
-        providers: { groq, freegg },
+        providers: { openrouter, freegg },
         concurrency: env.AI_MAX_CONCURRENCY,
         maxQueue: env.AI_MAX_QUEUE,
         intervalMs: env.AI_MIN_REQUEST_INTERVAL_MS,
@@ -39,6 +40,8 @@ export function getConfiguredProvider() {
         retries: env.AI_MAX_RETRIES,
         maxRetryWaitMs: env.AI_MAX_RETRY_WAIT_MS,
         maxOutputTokens: env.AI_MAX_OUTPUT_TOKENS,
+        openrouterOutputTokens: env.OPENROUTER_MAX_OUTPUT_TOKENS,
+        freeggOutputTokens: env.FREEGG_MAX_OUTPUT_TOKENS,
         temperature: env.AI_TEMPERATURE,
       },
       {

@@ -8,6 +8,7 @@ import { geminiResponseSchema } from "./gemini-schema.js";
 import { geminiClient, assertGeminiStartup } from "./gemini-client.js";
 import { getConfiguredProvider } from "./configured-provider.js";
 import { createLongSourceGenerator } from "./long-source.js";
+import { providerFailure } from "./provider-errors.js";
 import { createGeminiTutorGenerator, createGeminiTutorFailover } from "./gemini-tutor.js";
 import {
   notebookSchema,
@@ -114,7 +115,7 @@ export function createGeminiStudyGenerator(model: string, transport: Transport) 
       ...(counts.chunkPosition
         ? {
             sourcePart: counts.chunkPosition,
-            chunkInstructions: `This is an ordered part of a longer source. Cover all significant concepts in this part with definitions, step-by-step explanations, examples, formulas, useful comparisons/diagrams, applications and a conclusion where supported. Avoid generic repeated introductions and duplicated overlap. For notes, aim for at most ${Math.max(1, Math.floor(150 / counts.chunkPosition.total))} substantive blocks, using detailed paragraph text (up to 5000 characters per block) rather than many tiny blocks, so the full lecture fits the existing notebook format. Do not shorten important explanations to hit this target; retain all significant concepts. Do not invent syllabus or exam provenance.`,
+            chunkInstructions: `This is an ordered part of a longer source. Cover all significant concepts in this part with definitions, step-by-step explanations, examples, formulas, useful comparisons/diagrams, applications and a conclusion where supported. Avoid generic repeated introductions and duplicated overlap. For notes, return at most ${Math.max(1, Math.floor((150 - counts.chunkPosition.total) / counts.chunkPosition.total))} blocks TOTAL, including headings and summaries, using detailed paragraph text (up to 5000 characters per block) rather than many tiny blocks, so the full lecture fits the existing notebook format. Combine related explanations within substantial paragraphs; do not shorten important explanations to hit this target and retain all significant concepts. Do not invent syllabus or exam provenance.`,
           }
         : {}),
       ...(count ? { requestedCount: count } : {}),
@@ -323,10 +324,11 @@ export function getConfiguredLongTutor() {
   return { model: provider.model, generate: longTutorConfigured };
 }
 function assertPrimaryConfigured() {
-  const primary = env.AI_PRIMARY_PROVIDER ?? (env.AI_PROVIDER === "freegg" ? "freegg" : "groq");
+  const primary =
+    env.AI_PRIMARY_PROVIDER ?? (env.AI_PROVIDER === "freegg" ? "freegg" : "openrouter");
   if (
-    !(primary === "groq"
-      ? env.GROQ_ENABLED && env.GROQ_API_KEY
+    !(primary === "openrouter"
+      ? env.OPENROUTER_ENABLED && env.OPENROUTER_API_KEY
       : env.FREEGG_ENABLED && env.FREEGG_API_KEY)
   )
     throw new NotesGenerationError(
@@ -338,12 +340,26 @@ function assertPrimaryConfigured() {
 }
 function managedStudyGenerator() {
   const provider = getConfiguredProvider();
-  return createLongSourceGenerator(createGeminiStudyGenerator(provider.model, provider), {
-    chunkTokens: env.AI_CHUNK_TOKENS,
-    overlapTokens: env.AI_CHUNK_OVERLAP_TOKENS,
-    maxChunks: env.AI_MAX_CHUNKS,
-    timeoutMs: env.AI_JOB_TIMEOUT_MS,
-  });
+  const generate = createGeminiStudyGenerator(provider.model, provider);
+  return createLongSourceGenerator(
+    async (...args) => {
+      try {
+        return await generate(...args);
+      } catch (error) {
+        throw providerFailure(error);
+      }
+    },
+    {
+      chunkTokens: env.AI_CHUNK_TOKENS,
+      overlapTokens: env.AI_CHUNK_OVERLAP_TOKENS,
+      maxChunks: env.AI_MAX_CHUNKS,
+      timeoutMs: env.AI_JOB_TIMEOUT_MS,
+      longChunkTokens: Math.min(
+        env.AI_LONG_SOURCE_CHUNK_TOKENS,
+        env.OPENROUTER_CONTEXT_TOKENS - env.AI_MAX_OUTPUT_TOKENS - 8192,
+      ),
+    },
+  );
 }
 export function getConfiguredStudyGemini(cacheLookupOnly = false) {
   if (env.AI_PRIMARY_PROVIDER || env.AI_PROVIDER !== "gemini") {

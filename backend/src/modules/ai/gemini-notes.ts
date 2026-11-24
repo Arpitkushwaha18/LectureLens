@@ -245,10 +245,11 @@ export function createGeminiNotesGenerator(model: string, transport: GeminiTrans
 let configuredGenerator: ReturnType<typeof createGeminiNotesGenerator> | undefined;
 export function getConfiguredGemini(cacheLookupOnly = false) {
   if (env.AI_PRIMARY_PROVIDER || env.AI_PROVIDER !== "gemini") {
-    const primary = env.AI_PRIMARY_PROVIDER ?? (env.AI_PROVIDER === "freegg" ? "freegg" : "groq");
+    const primary =
+      env.AI_PRIMARY_PROVIDER ?? (env.AI_PROVIDER === "freegg" ? "freegg" : "openrouter");
     if (
-      !(primary === "groq"
-        ? env.GROQ_ENABLED && env.GROQ_API_KEY
+      !(primary === "openrouter"
+        ? env.OPENROUTER_ENABLED && env.OPENROUTER_API_KEY
         : env.FREEGG_ENABLED && env.FREEGG_API_KEY)
     )
       throw new NotesGenerationError(

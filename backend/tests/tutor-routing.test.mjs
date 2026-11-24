@@ -58,6 +58,9 @@ it("Ask doubts selects Gemini Flash-Lite independently of FreeGG and uses a fast
       ...process.env,
       NODE_ENV: "test",
       AI_PROVIDER: "freegg",
+      AI_PRIMARY_PROVIDER: "freegg",
+      AI_FALLBACK_PROVIDER: "none",
+      OPENROUTER_API_KEY: "",
       GEMINI_API_KEY: "synthetic_key_12345678",
       GEMINI_BACKUP_API_KEY: "",
       GEMINI_MODEL: "",
@@ -75,6 +78,9 @@ it("missing Gemini tutor key fails without contacting FreeGG", () => {
       ...process.env,
       NODE_ENV: "test",
       AI_PROVIDER: "freegg",
+      AI_PRIMARY_PROVIDER: "freegg",
+      AI_FALLBACK_PROVIDER: "none",
+      OPENROUTER_API_KEY: "",
       GEMINI_API_KEY: "",
       GEMINI_BACKUP_API_KEY: "",
       GEMINI_MODEL: "",
@@ -89,6 +95,9 @@ function isolated(code) {
       ...process.env,
       NODE_ENV: "test",
       AI_PROVIDER: "freegg",
+      AI_PRIMARY_PROVIDER: "freegg",
+      AI_FALLBACK_PROVIDER: "none",
+      OPENROUTER_API_KEY: "",
       GEMINI_API_KEY: "synthetic_key_12345678",
       GEMINI_BACKUP_API_KEY: "",
       GEMINI_MODEL: "",
@@ -100,13 +109,13 @@ function isolated(code) {
   });
   assert.equal(result.status, 0, result.stderr.toString() + result.stdout.toString());
 }
-it("Detailed Ask in explicitly selected FreeGG mode respects the application token ceiling and store:false", () => {
+it("Detailed Ask in explicitly selected FreeGG mode respects its independent output ceiling and store:false", () => {
   isolated(`
     import assert from 'node:assert/strict';
     let calls=0;
     globalThis.fetch=async(url,init)=>{
       calls++; assert.equal(String(url),'https://freegg.app/v1/responses');
-      const body=JSON.parse(init.body); assert.equal(body.model,'gpt-6.1-sol'); assert.equal(body.store,false); assert.equal(body.max_output_tokens,4096);
+      const body=JSON.parse(init.body); assert.equal(body.model,'gpt-6.1-sol'); assert.equal(body.store,false); assert.equal(body.max_output_tokens,8192);
       return new Response(JSON.stringify({status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:JSON.stringify({schemaVersion:2,title:'Recursion',blocks:[{type:'paragraph',text:'A recursive function calls itself until its base case.'}],limitations:[]})}]}]}));
     };
     const {askTemporaryTutor}=await import('./dist/services/temporary-workspace.service.js');

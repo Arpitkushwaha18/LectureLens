@@ -7,7 +7,7 @@
 - `http://localhost:5173/assistant` submits YouTube URLs or actual PDF/XLSX/XLS/CSV files to `POST /api/v1/workspace/process` using multipart uploads.
 - The backend streams validated NDJSON stages, extracted source previews, results and safe failures. Progress starts immediately, reflects actual stages, and does not invent percentages. Continue is disabled during a request.
 - All six selections are dispatched: detailed notes, short notes, flashcards, MCQ quizzes, mind maps and AI-generated sample question papers (not actual PYQs).
-- Validated notebook JSON renders with self-hosted Kalam/Caveat fonts, ruled warm paper, a red margin, definitions, examples, formulas, tables, SVG graphs, flashcards and quizzes. Legacy YouTube detailed notes convert deterministically without invented content.
+- Validated notebook JSON renders on screen and in exported PDFs with self-hosted Kalam/Caveat fonts, ruled warm paper, a red margin, definitions, examples, formulas, tables, SVG graphs, flashcards and quizzes. Legacy YouTube detailed notes convert deterministically without invented content.
 - Export PDF opens the browser print dialog. Select **Save as PDF**, A4, and enable background graphics if required by the browser. The isolated print portal includes all selected materials, closed flashcard answers and quiz solutions, without workspace navigation.
 - Manual transcript entry, Progress and My Learning are removed from the UI. The legacy backend notes API remains compatible; this does not reintroduce manual entry into the workspace.
 - Notes Gallery has no fabricated starter content. Its endpoint returns only operator-imported validated notebooks. Missing captions use an exact video-ID match or the clean empty state.

@@ -274,8 +274,7 @@ utilities.
 | `brown`      | `#7b5a41` | Margin notes                  |
 | `olive`      | `#5c7052` | Healthy / live states         |
 
-**Typography** — Fraunces Variable for headings, Inter Variable for interface text. Both are
-self-hosted through Fontsource, so there is no third-party font request.
+**Typography** — Fraunces Variable for headings, Inter Variable for interface text. Self-hosted study notes use Kalam for body text and Caveat for headings on screen and in exported PDFs, with STIX Two Math for formulas. All fonts are self-hosted through Fontsource, so there is no third-party font request.
 
 **Utilities** — `.paper-panel`, `.ruled`, `.ruled-margin`, `.label-caps`, `.margin-note`.
 

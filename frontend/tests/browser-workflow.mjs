@@ -18,7 +18,7 @@ for (const key of [
   "GEMINI_MODEL",
   "TRANSCRIPTFETCH_API_KEY",
   "FREEGG_API_KEY",
-  "GROQ_API_KEY",
+  "OPENROUTER_API_KEY",
 ])
   process.env[key] = "";
 const { createApp } = await import("../../backend/dist/app.js");
@@ -141,7 +141,7 @@ try {
   );
   assert.equal(await sourceChecks.getAttribute("open"), null);
   assert.equal(await paper.locator(".notebook-limitations").count(), 0);
-  assert.match(await paper.evaluate((node) => getComputedStyle(node).fontFamily), /Inter/);
+  assert.match(await paper.evaluate((node) => getComputedStyle(node).fontFamily), /Kalam/);
   assert.equal(await paper.locator("math mfrac").count(), 1);
   assert.equal(await paper.locator("math msqrt").count(), 1);
   assert.match(
@@ -177,8 +177,8 @@ try {
       heading: getComputedStyle(node.querySelector("h1")).fontFamily,
       formula: getComputedStyle(node.querySelector("math")).fontFamily,
     }));
-  assert.match(screenFonts.body, /Inter/);
-  assert.match(screenFonts.heading, /Fraunces/);
+  assert.match(screenFonts.body, /Kalam/);
+  assert.match(screenFonts.heading, /Caveat/);
   assert.match(printFonts.body, /Kalam/);
   assert.match(printFonts.heading, /Caveat/);
   assert.equal(printFonts.formula, screenFonts.formula);
@@ -289,7 +289,11 @@ try {
   assert.doesNotMatch(await page.getByRole("alert").textContent(), /SECRET_PROVIDER_DETAIL/);
   const beforeRetry = generations;
   await page.getByRole("button", { name: "Retry", exact: true }).click();
-  await page.getByRole("tab", { name: /Short notes/ }).waitFor();
+  await page.getByRole("tab", { name: /Short notes/ }).click();
+  assert.match(
+    await page.locator(".revision-sheet").evaluate((node) => getComputedStyle(node).fontFamily),
+    /Kalam/,
+  );
   assert.equal(generations, beforeRetry + 1);
   await page.reload();
   assert.equal(await page.getByRole("button", { name: "Export PDF", exact: true }).count(), 0);

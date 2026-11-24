@@ -36,13 +36,41 @@ it("chunk count/configuration limits fail explicitly rather than truncate the so
     (e) => e.code === "AI_CONFIGURATION",
   );
 });
+it("configured long-source batching reduces call count while retaining every source part", async () => {
+  const text = "Detailed engineering concepts and definitions. ".repeat(1600);
+  const calls = [];
+  const generate = createLongSourceGenerator(
+    async (part, _output, counts) => {
+      calls.push(part);
+      return make(`Covered source part ${counts.chunkPosition.index}.`);
+    },
+    {
+      chunkTokens: 1000,
+      longChunkTokens: 6000,
+      overlapTokens: 20,
+      maxChunks: 128,
+      timeoutMs: 10000,
+    },
+  );
+  const result = await generate(text, "detailed_notes");
+  const expected = chunkSource(text, 6000, 20);
+  assert.deepEqual(
+    calls,
+    expected.map((chunk) => chunk.text),
+  );
+  assert.equal(expected.map((chunk) => text.slice(chunk.coreStart, chunk.end)).join(""), text);
+  assert.ok(calls.length < chunkSource(text, 1000, 20).length);
+  assert.ok(
+    result.blocks.some((block) => block.text?.includes(`Covered source part ${calls.length}.`)),
+  );
+});
 it("completed chunks are retained request-locally while the failed chunk retries; repeated source starts anew", async () => {
   const text = "Lecture concept atomicity and transactions.\n".repeat(300);
   const chunks = chunkSource(text, 1000, 20);
   const attempts = new Map();
   const progress = [];
   const provider = {
-    id: "groq",
+    id: "openrouter",
     model: "fixture",
     supportsPdf: false,
     generateContent: async (input) => {
@@ -59,9 +87,9 @@ it("completed chunks are retained request-locally while the failed chunk retries
   };
   const manager = createProviderManager(
     {
-      primary: "groq",
+      primary: "openrouter",
       fallback: "none",
-      providers: { groq: provider },
+      providers: { openrouter: provider },
       concurrency: 1,
       maxQueue: 1,
       intervalMs: 0,
@@ -89,7 +117,7 @@ it("completed chunks are retained request-locally while the failed chunk retries
   await generate(text, "detailed_notes");
   assert.equal(attempts.get(1), 2);
 });
-it("midway Groq failure preserves earlier chunks and switches subsequent chunks to FreeGG during cooldown", async () => {
+it("midway OpenRouter failure preserves earlier chunks and switches subsequent chunks to FreeGG during cooldown", async () => {
   let primary = 0,
     fallback = 0;
   const response = (text) => ({
@@ -98,11 +126,11 @@ it("midway Groq failure preserves earlier chunks and switches subsequent chunks 
   });
   const manager = createProviderManager(
     {
-      primary: "groq",
+      primary: "openrouter",
       fallback: "freegg",
       providers: {
-        groq: {
-          id: "groq",
+        openrouter: {
+          id: "openrouter",
           model: "fixture",
           supportsPdf: false,
           generateContent: async () => {
@@ -173,6 +201,30 @@ it("merging removes exact duplicate overlap without dropping unique definitions,
   );
   assert.ok(titled.blocks.some((b) => b.text === "Applications"));
   assert.ok(titled.blocks.some((b) => b.text === "Practical engineering"));
+});
+it("merging packs small chunk limitations without discarding any warning", () => {
+  const warnings = Array.from(
+    { length: 25 },
+    (_, i) => `Unique source warning ${i}: check the transcript context for this topic.`,
+  );
+  const result = mergeNotebooks(
+    warnings.map((warning, i) => ({ ...make(`Topic ${i}.`), limitations: [warning] })),
+    "detailed_notes",
+  );
+  assert.ok(result.limitations.length <= 12);
+  assert.equal(result.limitations.join("\n\n"), warnings.join("\n\n"));
+  assert.ok(result.limitations.every((warning) => warning.length <= 1000));
+  assert.throws(
+    () =>
+      mergeNotebooks(
+        Array.from({ length: 13 }, (_, i) => ({
+          ...make(`Topic ${i}.`),
+          limitations: [`Warning ${i}: ` + "x".repeat(980)],
+        })),
+        "detailed_notes",
+      ),
+    (e) => e.code === "AI_OUTPUT_LIMIT" && e.mergeCounts.limitations === 13,
+  );
 });
 it("long transcript practice items retain the exact requested count and sample across all source parts", async () => {
   const generate = createLongSourceGenerator(

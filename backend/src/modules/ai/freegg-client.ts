@@ -71,7 +71,8 @@ export function freeggTransport(
               model: input.model,
               input: messages,
               max_output_tokens: config?.maxOutputTokens ?? 8192,
-              temperature: config?.temperature ?? 0.2,
+              // FreeGG's configured GPT reasoning model rejects temperature.
+              // Omit optional sampling controls instead of discovering capabilities by retrying.
               text: { format: { type: "json_object" } },
               store: false,
               stream: false,
